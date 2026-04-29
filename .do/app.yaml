@@ -4,7 +4,7 @@ region: nyc
 services:
   - name: api
     github:
-      repo: TU_USUARIO/TU_REPO
+      repo: G02-Manuel/seni_gather
       branch: main
       deploy_on_push: true
     source_dir: server
@@ -27,7 +27,7 @@ services:
 static_sites:
   - name: web
     github:
-      repo: TU_USUARIO/TU_REPO
+      repo: G02-Manuel/seni_gather
       branch: main
       deploy_on_push: true
     source_dir: client
