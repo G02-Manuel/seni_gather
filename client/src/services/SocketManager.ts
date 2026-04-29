@@ -16,10 +16,13 @@ export class SocketManager {
   private listeners: Map<string, Listener[]> = new Map();
 
   constructor(serverUrl?: string) {
-    this.serverUrl =
-      serverUrl ||
-      (process.env.REACT_APP_SERVER_URL as string) ||
-      'http://localhost:3001';
+    const envUrl = process.env.REACT_APP_SERVER_URL as string | undefined;
+    // En producción, si no se define la URL, usar el mismo origen (servidor sirve frontend).
+    const sameOrigin =
+      typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+        ? window.location.origin
+        : 'http://localhost:3001';
+    this.serverUrl = serverUrl || envUrl || sameOrigin;
   }
 
   // -----------------------------------------------------------------

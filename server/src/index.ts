@@ -3,16 +3,21 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { SocketEvents } from './types.js';
 import { GameServer } from './gameServer.js';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const httpServer = createServer(app);
 
 // CORS: admite lista separada por comas o "*" en producción.
-const rawOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+const rawOrigin = process.env.CORS_ORIGIN || '*';
 const corsOrigin: string | string[] =
   rawOrigin === '*'
     ? '*'
@@ -54,6 +59,14 @@ io.on(SocketEvents.CONNECTION, (socket) => {
     console.log(`🔴 Cliente desconectado: ${socket.id}`);
     gameServer.handleDisconnection(socket);
   });
+});
+
+// Servir el frontend (build de CRA) en producción.
+// Estructura en runtime: server/dist/index.js  →  ../../client/build
+const clientBuildPath = path.resolve(__dirname, '../../client/build');
+app.use(express.static(clientBuildPath));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3001;
