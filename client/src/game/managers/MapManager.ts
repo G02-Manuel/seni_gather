@@ -36,6 +36,9 @@ export class MapManager {
   /** Estado de “modo edición” (lo activa GameContainer/GameScene). */
   editMode = false;
 
+  /** Bandera para evitar loops al cargar texturas lazy. */
+  private _loadingTextures = false;
+
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
   }
@@ -178,6 +181,31 @@ export class MapManager {
   load(mapId: string, _unused?: string): MapDefinition {
     const def = MAPS[mapId];
     if (!def) throw new Error(`Template desconocido: ${mapId}`);
+
+    // Carga lazy de imágenes que falten (mapas compuestos, mapas con
+    // backgroundImage, etc.). Si falta alguna, lanzamos la carga y nos
+    // re-invocamos al completar. Render inicial sin imágenes para que
+    // el jugador no quede en negro.
+    const missing: { key: string; url: string }[] = [];
+    if (def.backgroundImage && !this.scene.textures.exists(def.backgroundImage.key)) {
+      missing.push({ key: def.backgroundImage.key, url: def.backgroundImage.url });
+    }
+    if (def.backgroundImages) {
+      for (const bgi of def.backgroundImages) {
+        if (!this.scene.textures.exists(bgi.key)) missing.push({ key: bgi.key, url: bgi.url });
+      }
+    }
+    if (missing.length > 0 && !this._loadingTextures) {
+      this._loadingTextures = true;
+      for (const m of missing) this.scene.load.image(m.key, m.url);
+      this.scene.load.once('complete', () => {
+        this._loadingTextures = false;
+        // Re-render con las texturas ya disponibles
+        if (this.current?.id === mapId) this.load(mapId);
+      });
+      this.scene.load.start();
+    }
+
     this.clear();
     this.current = def;
 
@@ -210,6 +238,40 @@ export class MapManager {
       this.scene.add.rectangle(wpx / 2, hpx / 2, wpx, hpx, baseColor).setDepth(-100)
     );
 
+    // Si hay outdoorColor (mapa compuesto con jardín / patio), generamos
+    // una textura procedural de pasto (manchas verde claro/oscuro sobre
+    // el color base) y la tileamos sobre todo el mundo.
+    if (def.outdoorColor !== undefined) {
+      const grassKey = `_grass_${def.outdoorColor.toString(16)}`;
+      if (!this.scene.textures.exists(grassKey)) {
+        const tile = 32;
+        const c = document.createElement('canvas');
+        c.width = tile; c.height = tile;
+        const ctx = c.getContext('2d')!;
+        // base
+        const baseHex = '#' + def.outdoorColor.toString(16).padStart(6, '0');
+        ctx.fillStyle = baseHex;
+        ctx.fillRect(0, 0, tile, tile);
+        // manchas claras y oscuras (briznas de pasto)
+        const rng = (seed: number) => {
+          let s = seed;
+          return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0xffffffff; };
+        };
+        const r = rng(def.outdoorColor + 7);
+        for (let i = 0; i < 18; i++) {
+          const x = Math.floor(r() * tile);
+          const y = Math.floor(r() * tile);
+          const dark = r() < 0.5;
+          ctx.fillStyle = dark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.10)';
+          ctx.fillRect(x, y, 2, 1);
+        }
+        this.scene.textures.addCanvas(grassKey, c);
+      }
+      const grass = this.scene.add.tileSprite(wpx / 2, hpx / 2, wpx, hpx, grassKey)
+        .setDepth(-99);
+      this.themed.push(grass);
+    }
+
     // Fondo pre-renderizado único (imagen LimeZu cubre todo el mundo)
     if (useBgImage) {
       const bg = this.scene.add.image(wpx / 2, hpx / 2, def.backgroundImage!.key)
@@ -236,36 +298,30 @@ export class MapManager {
       }
     }
 
-    // Corredores: piso de madera LimeZu en cada rectángulo en tiles.
-    // Se dibujan ENCIMA de las áreas (depth -94) para "perforar"
-    // visualmente las paredes pintadas en los PNG cuando el corredor
-    // entra 1 tile dentro del área (puerta).
-    if (def.corridors && this.scene.textures.exists(LZ_KEYS.ROOM_BUILDER)) {
+    // Corredores: piso de madera entre áreas. Se dibujan ENCIMA de las
+    // áreas (depth -94) para "perforar" visualmente las paredes pintadas
+    // en los PNG cuando el corredor entra 1 tile dentro del área (puerta).
+    if (def.corridors) {
       for (const c of def.corridors) {
-        for (let yy = 0; yy < c.height; yy++) {
-          for (let xx = 0; xx < c.width; xx++) {
-            const cx = (c.x + xx) * T + T / 2;
-            const cy = (c.y + yy) * T + T / 2;
-            this.themed.push(
-              this.scene.add.image(cx, cy, LZ_KEYS.ROOM_BUILDER, OFFICE_TILES.floorWood)
-                .setDisplaySize(T, T)
-                .setDepth(-94)
-            );
-          }
-        }
-      }
-    } else if (def.corridors) {
-      // Fallback sin textura: rectángulo de color madera
-      for (const c of def.corridors) {
+        const cw = c.width * T;
+        const ch = c.height * T;
+        const cx = c.x * T + cw / 2;
+        const cy = c.y * T + ch / 2;
+        // Base sólida marrón (siempre visible aunque no haya spritesheet)
         this.themed.push(
-          this.scene.add.rectangle(
-            c.x * T + (c.width * T) / 2,
-            c.y * T + (c.height * T) / 2,
-            c.width * T,
-            c.height * T,
-            0x8B5A2B,
-          ).setDepth(-94)
+          this.scene.add.rectangle(cx, cy, cw, ch, 0xa97d4f).setDepth(-94)
         );
+        // Líneas de tablones para que parezca madera
+        const g = this.scene.add.graphics().setDepth(-93);
+        g.lineStyle(1, 0x6b4423, 0.5);
+        for (let yy = 0; yy < c.height; yy++) {
+          const y = (c.y + yy) * T;
+          g.lineBetween(c.x * T, y, (c.x + c.width) * T, y);
+        }
+        // Borde oscuro para diferenciar del muro
+        g.lineStyle(2, 0x3b2a1a, 0.8);
+        g.strokeRect(c.x * T, c.y * T, cw, ch);
+        this.themed.push(g);
       }
     }
 

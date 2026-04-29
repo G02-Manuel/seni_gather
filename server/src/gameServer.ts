@@ -25,14 +25,14 @@ const TEMPLATES: Record<TemplateId, TemplateMeta> = {
   office: {
     id: 'office',
     name: 'Oficina LimeZu (6 áreas)',
-    spawn: { x: 7, y: 12 },
+    spawn: { x: 14, y: 19 },
     fastTravel: {
-      lounge:  { id: 'lounge',  x: 7,  y: 7  },
-      cafe:    { id: 'cafe',    x: 22, y: 7  },
-      cowork:  { id: 'cowork',  x: 35, y: 7  },
-      gym:     { id: 'gym',     x: 9,  y: 25 },
-      audio:   { id: 'audio',   x: 31, y: 23 },
-      gallery: { id: 'gallery', x: 18, y: 42 },
+      lounge:  { id: 'lounge',  x: 15, y: 14 },
+      cafe:    { id: 'cafe',    x: 30, y: 13 },
+      cowork:  { id: 'cowork',  x: 43, y: 13 },
+      gym:     { id: 'gym',     x: 17, y: 35 },
+      audio:   { id: 'audio',   x: 38, y: 33 },
+      gallery: { id: 'gallery', x: 32, y: 53 },
     },
   },
   nature: {
