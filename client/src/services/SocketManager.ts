@@ -44,8 +44,20 @@ export class SocketManager {
   }
 
   /** Crea una nueva sala con el template indicado y entra. */
-  createRoom(playerName: string, templateId: string, avatar?: AvatarConfig) {
-    const send = () => this.socket?.emit(SocketEvents.ROOM_CREATE, { playerName, templateId, avatar });
+  createRoom(
+    playerName: string,
+    templateId: string,
+    avatar?: AvatarConfig,
+    opts?: { permanent?: boolean; roomName?: string }
+  ) {
+    const payload = {
+      playerName,
+      templateId,
+      avatar,
+      permanent: !!opts?.permanent,
+      roomName: opts?.roomName,
+    };
+    const send = () => this.socket?.emit(SocketEvents.ROOM_CREATE, payload);
     if (this.socket?.connected) send();
     else this.socket?.once('connect', send);
   }

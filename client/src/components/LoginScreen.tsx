@@ -1,26 +1,55 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AvatarConfig, DEFAULT_AVATAR } from '../types';
 import { TEMPLATE_LIST, TemplateId } from '../game/utils/MapDefinitions';
 import AvatarCustomizer from './Avatar/AvatarCustomizer';
 
+interface CreateOptions {
+  permanent: boolean;
+  roomName?: string;
+}
+
+interface PermanentRoom {
+  code: string;
+  templateId: string;
+  name: string;
+  ownerName: string;
+  createdAt: number;
+}
+
 interface Props {
-  onCreate: (name: string, templateId: TemplateId, avatar: AvatarConfig) => void;
+  onCreate: (name: string, templateId: TemplateId, avatar: AvatarConfig, opts: CreateOptions) => void;
   onJoin:   (name: string, roomCode: string, avatar: AvatarConfig) => void;
 }
 
-type Tab = 'create' | 'join';
+type Tab = 'create' | 'join' | 'spaces';
 
 const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
   const [tab, setTab] = useState<Tab>('create');
   const [name, setName] = useState('');
   const [templateId, setTemplateId] = useState<TemplateId>('office');
   const [code, setCode] = useState('');
+  const [permanent, setPermanent] = useState(false);
+  const [roomName, setRoomName] = useState('');
   const [avatar, setAvatar] = useState<AvatarConfig>(DEFAULT_AVATAR);
   const [step, setStep] = useState<'identity' | 'avatar'>('identity');
+  const [permanentRooms, setPermanentRooms] = useState<PermanentRoom[]>([]);
+
+  // Cargar espacios permanentes al abrir la pestaña
+  useEffect(() => {
+    if (tab !== 'spaces') return;
+    fetch('/api/permanent-rooms')
+      .then((r) => r.json())
+      .then((rows) => Array.isArray(rows) && setPermanentRooms(rows))
+      .catch(() => setPermanentRooms([]));
+  }, [tab]);
 
   const canContinue =
     name.trim().length > 0 &&
-    (tab === 'create' ? !!templateId : code.trim().length === 6);
+    (tab === 'create'
+      ? !!templateId
+      : tab === 'join'
+      ? code.trim().length === 6
+      : false);
 
   if (step === 'avatar') {
     return (
@@ -30,8 +59,14 @@ const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
             initial={avatar}
             onConfirm={(cfg) => {
               setAvatar(cfg);
-              if (tab === 'create') onCreate(name.trim(), templateId, cfg);
-              else                   onJoin(name.trim(), code.trim().toUpperCase(), cfg);
+              if (tab === 'create') {
+                onCreate(name.trim(), templateId, cfg, {
+                  permanent,
+                  roomName: permanent ? (roomName.trim() || undefined) : undefined,
+                });
+              } else {
+                onJoin(name.trim(), code.trim().toUpperCase(), cfg);
+              }
             }}
             onCancel={() => setStep('identity')}
             title="Personaliza tu avatar"
@@ -61,6 +96,13 @@ const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
             type="button"
           >
             🔗 Unirme con código
+          </button>
+          <button
+            className={`login-tab ${tab === 'spaces' ? 'active' : ''}`}
+            onClick={() => setTab('spaces')}
+            type="button"
+          >
+            🏛️ Espacios guardados
           </button>
         </div>
 
@@ -101,6 +143,38 @@ const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
                   </button>
                 ))}
               </div>
+
+              <div className="form-group permanent-toggle">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={permanent}
+                    onChange={(e) => setPermanent(e.target.checked)}
+                  />
+                  <span>
+                    <strong>🏛️ Hacer este un espacio permanente</strong>
+                    <br />
+                    <small>
+                      El código quedará guardado y podrás volver luego con el mismo
+                      contenido (notas, pizarra).
+                    </small>
+                  </span>
+                </label>
+              </div>
+
+              {permanent && (
+                <div className="form-group">
+                  <label htmlFor="roomName">Nombre del espacio (opcional)</label>
+                  <input
+                    id="roomName"
+                    type="text"
+                    value={roomName}
+                    onChange={(e) => setRoomName(e.target.value)}
+                    placeholder="Ej: Oficina del equipo Diseño"
+                    maxLength={60}
+                  />
+                </div>
+              )}
             </>
           )}
 
@@ -125,9 +199,48 @@ const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
             </div>
           )}
 
-          <button type="submit" className="btn-primary big" disabled={!canContinue}>
-            {tab === 'create' ? 'Crear espacio →' : 'Unirme →'}
-          </button>
+          {tab === 'spaces' && (
+            <div className="permanent-list">
+              {permanentRooms.length === 0 ? (
+                <p className="hint-text">
+                  Aún no hay espacios guardados. Crea uno marcando “Hacer permanente”.
+                </p>
+              ) : (
+                <ul>
+                  {permanentRooms.map((r) => (
+                    <li key={r.code} className="permanent-item">
+                      <div>
+                        <div className="permanent-name">{r.name}</div>
+                        <div className="permanent-meta">
+                          {r.ownerName ? `Por ${r.ownerName} · ` : ''}
+                          {r.templateId}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={!name.trim()}
+                        onClick={() => {
+                          if (!name.trim()) return;
+                          setCode(r.code);
+                          setTab('join');
+                          setStep('avatar');
+                        }}
+                      >
+                        {r.code} →
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {tab !== 'spaces' && (
+            <button type="submit" className="btn-primary big" disabled={!canContinue}>
+              {tab === 'create' ? 'Crear espacio →' : 'Unirme →'}
+            </button>
+          )}
         </form>
       </div>
     </div>

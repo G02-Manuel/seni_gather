@@ -7,6 +7,8 @@ import './App.css';
 
 type Mode = 'create' | 'join';
 
+interface CreateOpts { permanent: boolean; roomName?: string; }
+
 function App() {
   const [logged, setLogged] = useState(false);
   const [name, setName] = useState('');
@@ -14,9 +16,11 @@ function App() {
   const [mode, setMode] = useState<Mode>('create');
   const [templateId, setTemplateId] = useState<TemplateId>('office');
   const [roomCode, setRoomCode] = useState<string>('');
+  const [createOpts, setCreateOpts] = useState<CreateOpts>({ permanent: false });
 
-  const handleCreateRoom = (n: string, t: TemplateId, a: AvatarConfig) => {
+  const handleCreateRoom = (n: string, t: TemplateId, a: AvatarConfig, opts: CreateOpts) => {
     setName(n); setAvatar(a); setMode('create'); setTemplateId(t); setRoomCode('');
+    setCreateOpts(opts);
     setLogged(true);
   };
 
@@ -38,6 +42,8 @@ function App() {
           mode={mode}
           templateId={templateId}
           roomCode={roomCode}
+          permanent={createOpts.permanent}
+          customRoomName={createOpts.roomName}
           onLogout={handleLogout}
         />
       )}

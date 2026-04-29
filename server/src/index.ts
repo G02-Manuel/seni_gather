@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { SocketEvents } from './types.js';
 import { GameServer } from './gameServer.js';
+import { Storage } from './storage.js';
 
 dotenv.config();
 
@@ -47,6 +48,10 @@ app.get('/health', (req, res) => {
 
 app.get('/api/rooms', (req, res) => {
   res.json(gameServer.getRooms());
+});
+
+app.get('/api/permanent-rooms', (req, res) => {
+  res.json(Storage.listRooms());
 });
 
 // Manejo de conexiones Socket.io

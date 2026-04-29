@@ -25,12 +25,14 @@ interface Props {
   mode: 'create' | 'join';
   templateId: TemplateId;   // sólo se usa cuando mode='create'
   roomCode: string;         // sólo se usa cuando mode='join'
+  permanent?: boolean;      // sólo si mode='create'
+  customRoomName?: string;  // sólo si mode='create' y permanent
   onLogout: () => void;
 }
 
 interface PeerVideo { id: string; name: string; stream: MediaStream | null; volume: number; speaking: boolean; }
 
-const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, roomCode, onLogout }) => {
+const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, roomCode, permanent, customRoomName, onLogout }) => {
   const gameRef = useRef<HTMLDivElement>(null);
   const phaserRef = useRef<Phaser.Game | null>(null);
   const sceneRef = useRef<GameScene | null>(null);
@@ -128,7 +130,10 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
           // La escena quedó lista. Disparamos crear o unirnos a la sala.
           localSocket.connect();
           if (mode === 'create') {
-            localSocket.createRoom(playerName, templateId, avatar);
+            localSocket.createRoom(playerName, templateId, avatar, {
+              permanent: !!permanent,
+              roomName: customRoomName,
+            });
           } else {
             localSocket.joinByCode(playerName, roomCode, avatar);
           }
