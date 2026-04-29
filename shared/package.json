@@ -1,0 +1,11 @@
+{
+  "name": "@orbitra/shared",
+  "version": "0.1.0",
+  "description": "Tipos y constantes compartidas entre cliente y servidor",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}

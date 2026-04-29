@@ -1,0 +1,63 @@
+name: orbitra
+region: nyc
+
+services:
+  - name: api
+    github:
+      repo: TU_USUARIO/TU_REPO
+      branch: main
+      deploy_on_push: true
+    source_dir: server
+    environment_slug: node-js
+    instance_size_slug: basic-xxs
+    instance_count: 1            # IMPORTANTE: mantener en 1 (estado en memoria)
+    http_port: 3001
+    build_command: npm install && npm run build
+    run_command: npm start
+    health_check:
+      http_path: /health
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: CORS_ORIGIN
+        value: ${web.PUBLIC_URL}
+
+static_sites:
+  - name: web
+    github:
+      repo: TU_USUARIO/TU_REPO
+      branch: main
+      deploy_on_push: true
+    source_dir: client
+    build_command: npm install && npm run build
+    output_dir: build
+    catchall_document: index.html
+    envs:
+      - key: REACT_APP_SERVER_URL
+        value: ${api.PUBLIC_URL}
+        scope: BUILD_TIME
+
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /socket.io
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /api
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /health
+      component:
+        name: api
+    - match:
+        path:
+          prefix: /
+      component:
+        name: web

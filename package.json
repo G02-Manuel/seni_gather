@@ -1,0 +1,31 @@
+{
+  "name": "orbitra",
+  "version": "0.1.0",
+  "description": "Plataforma de espacios virtuales 2D con audio/video por proximidad",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "gather",
+    "virtual-spaces",
+    "webrtc",
+    "multiplayer",
+    "2d-game"
+  ],
+  "author": "",
+  "license": "MIT"
+}
