@@ -69,6 +69,12 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
   const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [whiteboardHistory, setWhiteboardHistory] = useState<WhiteboardStroke[]>([]);
 
+  // Edición de mobiliario (solo propietario de espacios permanentes)
+  const [isOwner, setIsOwner] = useState(false);
+  const [roomPermanent, setRoomPermanent] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedFurniture, setSelectedFurniture] = useState<string | null>(null);
+
   // -------------------------------------------------------------------
   // BOOT
   // -------------------------------------------------------------------
@@ -191,6 +197,10 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
         setActiveTemplate(info.templateId as TemplateId);
         setActiveRoomName(info.name);
         setRoomError(null);
+        setRoomPermanent(!!info.permanent);
+        const owner = (info.ownerName || '').trim().toLowerCase();
+        const me = playerName.trim().toLowerCase();
+        setIsOwner(!!owner && owner === me);
         // Si entramos por código, el template real puede diferir del por-defecto.
         sceneRef.current?.setTemplate(info.templateId as TemplateId);
       });
@@ -314,6 +324,31 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
 
   const nearbyIds = useMemo(() => new Set(proximityDistances.keys()), [proximityDistances]);
 
+  // Sincroniza el modo edición y el tipo seleccionado con la escena Phaser
+  useEffect(() => {
+    sceneRef.current?.setEditMode(editMode);
+    if (!editMode) setSelectedFurniture(null);
+  }, [editMode]);
+  useEffect(() => {
+    sceneRef.current?.setSelectedFurnitureType(selectedFurniture);
+  }, [selectedFurniture]);
+
+  const FURNITURE_PALETTE: { type: string; emoji: string; label: string }[] = [
+    { type: 'desk',        emoji: '🟫', label: 'Escritorio' },
+    { type: 'chair',       emoji: '🪑', label: 'Silla' },
+    { type: 'sofa',        emoji: '🛋️', label: 'Sofá' },
+    { type: 'tv',          emoji: '📺', label: 'TV' },
+    { type: 'lamp',        emoji: '💡', label: 'Lámpara' },
+    { type: 'plant',       emoji: '🪴', label: 'Planta' },
+    { type: 'tree',        emoji: '🌳', label: 'Árbol' },
+    { type: 'flower',      emoji: '🌸', label: 'Flores' },
+    { type: 'coffee',      emoji: '☕', label: 'Café' },
+    { type: 'bench',       emoji: '🪑', label: 'Banco' },
+    { type: 'picnictable', emoji: '🧺', label: 'Mesa picnic' },
+    { type: 'fire',        emoji: '🔥', label: 'Fogata' },
+    { type: 'books',       emoji: '📚', label: 'Libros' },
+  ];
+
   const peerVideoData: PeerVideo[] = useMemo(() => {
     const arr: PeerVideo[] = [];
     for (const [pid, d] of proximityDistances) {
@@ -421,6 +456,44 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
       <div className="hint-pill">
         WASD/Click para moverte · Acércate para hablar · N: nota · Espacio: PTT (si activo)
       </div>
+
+      {/* Botón flotante de edición — visible solo para el creador del espacio */}
+      {isOwner && roomPermanent && (
+        <button
+          type="button"
+          className={`edit-toggle-btn ${editMode ? 'active' : ''}`}
+          onClick={() => setEditMode((v) => !v)}
+          title={editMode ? 'Salir del modo edición' : 'Editar mobiliario (solo el creador)'}
+        >
+          {editMode ? '✓ Listo' : '✏️ Editar'}
+        </button>
+      )}
+
+      {/* Paleta de muebles */}
+      {editMode && (
+        <div className="furniture-panel">
+          <div className="furniture-panel-title">Mobiliario</div>
+          <div className="furniture-grid">
+            {FURNITURE_PALETTE.map((f) => (
+              <button
+                key={f.type}
+                type="button"
+                className={`furniture-btn ${selectedFurniture === f.type ? 'selected' : ''}`}
+                onClick={() => setSelectedFurniture(selectedFurniture === f.type ? null : f.type)}
+                title={f.label}
+              >
+                <span className="furniture-emoji">{f.emoji}</span>
+                <span className="furniture-label">{f.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="furniture-hint">
+            {selectedFurniture
+              ? 'Click en el mapa para colocar · Arrastra para mover · Click sobre un mueble para borrar'
+              : 'Elige un mueble para colocar, o arrastra/borra los existentes.'}
+          </div>
+        </div>
+      )}
 
       {roomError && (
         <div className="room-error-modal">

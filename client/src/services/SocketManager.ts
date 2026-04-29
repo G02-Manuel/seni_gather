@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import {
   Player, ChatMessage, SocketEvents, Position, Room,
-  AvatarConfig, PlayerStatus, StickyNote, WhiteboardStroke,
+  AvatarConfig, PlayerStatus, StickyNote, WhiteboardStroke, PlacedFurniture,
 } from '../types';
 
 type Listener<T = any> = (payload: T) => void;
@@ -122,7 +122,7 @@ export class SocketManager {
   changeMap(mapId: string) { this.socket?.emit(SocketEvents.MAP_CHANGE, mapId); }
   onRoomList(cb: Listener<Room[]>) { this.on(SocketEvents.ROOM_LIST, cb); }
 
-  onRoomJoined(cb: Listener<{ roomCode: string; templateId: string; name: string; spawnX: number; spawnY: number }>) {
+  onRoomJoined(cb: Listener<{ roomCode: string; templateId: string; name: string; spawnX: number; spawnY: number; ownerName?: string; permanent?: boolean }>) {
     this.on(SocketEvents.ROOM_JOINED, cb);
   }
   onRoomError(cb: Listener<{ code: string; message: string }>) {
@@ -186,4 +186,21 @@ export class SocketManager {
   onStroke(cb: Listener<WhiteboardStroke>) { this.on(SocketEvents.WHITEBOARD_STROKE, cb); }
   onWhiteboardHistory(cb: Listener<WhiteboardStroke[]>) { this.on(SocketEvents.WHITEBOARD_HISTORY, cb); }
   onWhiteboardClear(cb: Listener<void>) { this.on(SocketEvents.WHITEBOARD_CLEAR, cb); }
+
+  // -----------------------------------------------------------------
+  // FURNITURE
+  // -----------------------------------------------------------------
+  placeFurniture(type: string, x: number, y: number) {
+    this.socket?.emit(SocketEvents.FURNITURE_PLACE, { type, x, y });
+  }
+  moveFurniture(id: string, x: number, y: number) {
+    this.socket?.emit(SocketEvents.FURNITURE_MOVE, { id, x, y });
+  }
+  removeFurniture(id: string) {
+    this.socket?.emit(SocketEvents.FURNITURE_REMOVE, id);
+  }
+  onFurnitureList(cb: Listener<PlacedFurniture[]>)   { this.on(SocketEvents.FURNITURE_LIST, cb); }
+  onFurniturePlace(cb: Listener<PlacedFurniture>)    { this.on(SocketEvents.FURNITURE_PLACE, cb); }
+  onFurnitureMove(cb: Listener<{ id: string; x: number; y: number }>) { this.on(SocketEvents.FURNITURE_MOVE, cb); }
+  onFurnitureRemove(cb: Listener<string>)            { this.on(SocketEvents.FURNITURE_REMOVE, cb); }
 }

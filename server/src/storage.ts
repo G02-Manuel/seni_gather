@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { StickyNote, WhiteboardStroke } from './types.js';
+import { StickyNote, WhiteboardStroke, PlacedFurniture } from './types.js';
 
 /**
  * Persistencia con PostgreSQL (Neon, Supabase, DO Managed, etc.).
@@ -71,6 +71,15 @@ async function initSchema() {
         payload      JSONB NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_wb_room ON whiteboard_strokes(room_code, seq);
+
+      CREATE TABLE IF NOT EXISTS placed_furniture (
+        id           TEXT PRIMARY KEY,
+        room_code    TEXT NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
+        type         TEXT NOT NULL,
+        x            DOUBLE PRECISION NOT NULL,
+        y            DOUBLE PRECISION NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_furn_room ON placed_furniture(room_code);
     `);
     console.log('💾 PostgreSQL schema listo');
   } finally {
@@ -194,5 +203,31 @@ export const Storage = {
 
   async clearStickiesOfRoom(roomCode: string) {
     await query(`DELETE FROM sticky_notes WHERE room_code = $1`, [roomCode]);
+  },
+
+  // ---------------------------------------------------------------
+  // Mobiliario colocado por el creador del espacio permanente.
+  // ---------------------------------------------------------------
+  async saveFurniture(roomCode: string, f: PlacedFurniture) {
+    await query(
+      `INSERT INTO placed_furniture (id, room_code, type, x, y)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET
+         type = EXCLUDED.type,
+         x = EXCLUDED.x,
+         y = EXCLUDED.y`,
+      [f.id, roomCode, f.type, f.x, f.y],
+    );
+  },
+
+  async deleteFurniture(id: string) {
+    await query(`DELETE FROM placed_furniture WHERE id = $1`, [id]);
+  },
+
+  async listFurniture(roomCode: string): Promise<PlacedFurniture[]> {
+    return query<PlacedFurniture>(
+      `SELECT id, type, x, y FROM placed_furniture WHERE room_code = $1`,
+      [roomCode],
+    );
   },
 };

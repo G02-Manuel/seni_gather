@@ -207,30 +207,72 @@ const LoginScreen: React.FC<Props> = ({ onCreate, onJoin }) => {
                 </p>
               ) : (
                 <ul>
-                  {permanentRooms.map((r) => (
-                    <li key={r.code} className="permanent-item">
-                      <div>
-                        <div className="permanent-name">{r.name}</div>
-                        <div className="permanent-meta">
-                          {r.ownerName ? `Por ${r.ownerName} · ` : ''}
-                          {r.templateId}
+                  {permanentRooms.map((r) => {
+                    const isOwner =
+                      !!name.trim() &&
+                      r.ownerName.trim().toLowerCase() === name.trim().toLowerCase();
+                    return (
+                      <li key={r.code} className="permanent-item">
+                        <div>
+                          <div className="permanent-name">{r.name}</div>
+                          <div className="permanent-meta">
+                            {r.ownerName ? `Por ${r.ownerName} · ` : ''}
+                            {r.templateId}
+                          </div>
                         </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        disabled={!name.trim()}
-                        onClick={() => {
-                          if (!name.trim()) return;
-                          setCode(r.code);
-                          setTab('join');
-                          setStep('avatar');
-                        }}
-                      >
-                        {r.code} →
-                      </button>
-                    </li>
-                  ))}
+                        <div className="permanent-actions">
+                          {isOwner && (
+                            <button
+                              type="button"
+                              className="btn-danger"
+                              title="Eliminar este espacio (solo el creador)"
+                              onClick={async () => {
+                                if (!window.confirm(
+                                  `¿Eliminar el espacio "${r.name}" (${r.code})?\n` +
+                                  'Se borrarán notas y pizarra. Esta acción no se puede deshacer.'
+                                )) return;
+                                try {
+                                  const res = await fetch(
+                                    `/api/permanent-rooms/${r.code}?ownerName=${encodeURIComponent(name.trim())}`,
+                                    { method: 'DELETE' },
+                                  );
+                                  if (!res.ok) {
+                                    const body = await res.json().catch(() => ({}));
+                                    if (body.error === 'IN_USE') {
+                                      alert('No se puede eliminar: hay personas dentro del espacio.');
+                                    } else if (body.error === 'FORBIDDEN') {
+                                      alert('Solo el creador puede eliminar este espacio.');
+                                    } else {
+                                      alert('No se pudo eliminar el espacio.');
+                                    }
+                                    return;
+                                  }
+                                  setPermanentRooms((prev) => prev.filter((x) => x.code !== r.code));
+                                } catch {
+                                  alert('Error de red al eliminar.');
+                                }
+                              }}
+                            >
+                              🗑
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={!name.trim()}
+                            onClick={() => {
+                              if (!name.trim()) return;
+                              setCode(r.code);
+                              setTab('join');
+                              setStep('avatar');
+                            }}
+                          >
+                            {r.code} →
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

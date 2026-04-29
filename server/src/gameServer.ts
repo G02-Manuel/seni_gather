@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Player, Room, ChatMessage, SocketEvents, CONSTANTS, Position,
   AvatarConfig, DEFAULT_AVATAR, PlayerStatus, StickyNote, WhiteboardStroke,
+  PlacedFurniture,
 } from './types.js';
 import { Storage } from './storage.js';
 
@@ -103,6 +104,7 @@ interface RoomState {
   permanent: boolean;
   ownerName: string;
   whiteboardDirty: boolean;
+  furniture: Map<string, PlacedFurniture>;
 }
 
 /**
@@ -151,6 +153,7 @@ export class GameServer {
       permanent: !!opts.permanent,
       ownerName: (opts.ownerName || '').slice(0, 30),
       whiteboardDirty: false,
+      furniture: new Map(),
     };
     this.rooms.set(code, room);
     if (room.permanent) {
@@ -183,7 +186,9 @@ export class GameServer {
       room.stickyNotes.set(n.id, n);
     }
     room.whiteboardStrokes = await Storage.listStrokes(code);
-    console.log(`📂 Sala ${code} restaurada (${room.stickyNotes.size} notas, ${room.whiteboardStrokes.length} trazos)`);
+    const furniture = await Storage.listFurniture(code);
+    for (const f of furniture) room.furniture.set(f.id, f);
+    console.log(`📂 Sala ${code} restaurada (${room.stickyNotes.size} notas, ${room.whiteboardStrokes.length} trazos, ${room.furniture.size} muebles)`);
     return room;
   }
 
@@ -217,6 +222,10 @@ export class GameServer {
 
     socket.on(SocketEvents.STICKY_CREATE, (n: Partial<StickyNote>) => this.handleStickyCreate(socket, n));
     socket.on(SocketEvents.STICKY_DELETE, (id: string) => this.handleStickyDelete(socket, id));
+
+    socket.on(SocketEvents.FURNITURE_PLACE,  (d: { type: string; x: number; y: number }) => this.handleFurniturePlace(socket, d));
+    socket.on(SocketEvents.FURNITURE_MOVE,   (d: { id: string; x: number; y: number })   => this.handleFurnitureMove(socket, d));
+    socket.on(SocketEvents.FURNITURE_REMOVE, (id: string) => this.handleFurnitureRemove(socket, id));
 
     socket.on(SocketEvents.WHITEBOARD_STROKE, (s: WhiteboardStroke) => this.handleWhiteboardStroke(socket, s));
     socket.on(SocketEvents.WHITEBOARD_CLEAR, () => this.handleWhiteboardClear(socket));
@@ -322,11 +331,14 @@ export class GameServer {
       name:       room.name,
       spawnX:     player.x,
       spawnY:     player.y,
+      ownerName:  room.ownerName,
+      permanent:  room.permanent,
     });
     socket.emit(SocketEvents.PLAYERS_LIST, playersInRoom);
     socket.emit(SocketEvents.CHAT_HISTORY, room.chatHistory);
     socket.emit(SocketEvents.STICKY_LIST, Array.from(room.stickyNotes.values()));
     socket.emit(SocketEvents.WHITEBOARD_HISTORY, room.whiteboardStrokes);
+    socket.emit(SocketEvents.FURNITURE_LIST, Array.from(room.furniture.values()));
 
     socket.to(room.id).emit(SocketEvents.PLAYER_JOIN, player);
     console.log(`✅ ${player.name} entró a ${room.id} [${room.templateId}] (${playersInRoom.length})`);
@@ -532,6 +544,70 @@ export class GameServer {
   }
 
   // -----------------------------------------------------------------
+  // FURNITURE (mobiliario colocado por el creador)
+  // -----------------------------------------------------------------
+  /**
+   * Solo el creador del espacio (en salas permanentes) o cualquier persona
+   * en una sala efímera puede editar el mobiliario.
+   */
+  private canEditFurniture(player: Player, room: RoomState): boolean {
+    if (!room.permanent) return true;
+    return (player.name || '').trim().toLowerCase()
+        === (room.ownerName || '').trim().toLowerCase();
+  }
+
+  private handleFurniturePlace(socket: Socket, data: { type: string; x: number; y: number }) {
+    const p = this.players.get(socket.id);
+    if (!p) return;
+    const room = this.rooms.get(p.roomId);
+    if (!room) return;
+    if (!this.canEditFurniture(p, room)) return;
+    if (!data || typeof data.x !== 'number' || typeof data.y !== 'number') return;
+    const type = String(data.type || '').slice(0, 30);
+    if (!type) return;
+    if (room.furniture.size >= 200) return; // límite anti-abuso
+    const item: PlacedFurniture = { id: uuidv4(), type, x: data.x, y: data.y };
+    room.furniture.set(item.id, item);
+    if (room.permanent) {
+      Storage.saveFurniture(room.id, item)
+        .catch((e: Error) => console.error('saveFurniture:', e.message));
+    }
+    this.io.to(room.id).emit(SocketEvents.FURNITURE_PLACE, item);
+  }
+
+  private handleFurnitureMove(socket: Socket, data: { id: string; x: number; y: number }) {
+    const p = this.players.get(socket.id);
+    if (!p) return;
+    const room = this.rooms.get(p.roomId);
+    if (!room) return;
+    if (!this.canEditFurniture(p, room)) return;
+    const item = room.furniture.get(data.id);
+    if (!item) return;
+    item.x = data.x;
+    item.y = data.y;
+    if (room.permanent) {
+      Storage.saveFurniture(room.id, item)
+        .catch((e: Error) => console.error('saveFurniture (move):', e.message));
+    }
+    this.io.to(room.id).emit(SocketEvents.FURNITURE_MOVE, { id: item.id, x: item.x, y: item.y });
+  }
+
+  private handleFurnitureRemove(socket: Socket, id: string) {
+    const p = this.players.get(socket.id);
+    if (!p) return;
+    const room = this.rooms.get(p.roomId);
+    if (!room) return;
+    if (!this.canEditFurniture(p, room)) return;
+    if (!room.furniture.has(id)) return;
+    room.furniture.delete(id);
+    if (room.permanent) {
+      Storage.deleteFurniture(id)
+        .catch((e: Error) => console.error('deleteFurniture:', e.message));
+    }
+    this.io.to(room.id).emit(SocketEvents.FURNITURE_REMOVE, id);
+  }
+
+  // -----------------------------------------------------------------
   // PUBLIC
   // -----------------------------------------------------------------
   getRooms(): Room[] {
@@ -542,6 +618,19 @@ export class GameServer {
       currentPlayers: r.currentPlayers,
       mapId: r.templateId,
     }));
+  }
+
+  /**
+   * Descarga una sala permanente de memoria. Devuelve { ok:false, reason:'IN_USE' }
+   * si todavía hay jugadores conectados (no se permite eliminar mientras se use).
+   */
+  dropPermanentRoom(code: string): { ok: boolean; reason?: string } {
+    const room = this.rooms.get(code);
+    if (room && room.currentPlayers > 0) {
+      return { ok: false, reason: 'IN_USE' };
+    }
+    this.rooms.delete(code);
+    return { ok: true };
   }
 
   getStats() {

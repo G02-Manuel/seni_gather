@@ -90,6 +90,14 @@ export interface WhiteboardStroke {
   points: { x: number; y: number }[];
 }
 
+// ----- Mobiliario colocado por el creador ----------------------------
+export interface PlacedFurniture {
+  id: string;
+  type: string;   // 'desk' | 'plant' | 'coffee' | 'bench' | 'picnictable' | 'fire' | 'flower' | 'tree' | ...
+  x: number;
+  y: number;
+}
+
 // ----- Map definitions ------------------------------------------------
 export interface MapTeleport {
   id: string;
@@ -199,6 +207,11 @@ export enum SocketEvents {
   WHITEBOARD_STROKE = 'whiteboard:stroke',
   WHITEBOARD_HISTORY = 'whiteboard:history',
   WHITEBOARD_CLEAR = 'whiteboard:clear',
+
+  FURNITURE_LIST   = 'furniture:list',
+  FURNITURE_PLACE  = 'furniture:place',
+  FURNITURE_MOVE   = 'furniture:move',
+  FURNITURE_REMOVE = 'furniture:remove',
 }
 
 // ----- Constantes -----------------------------------------------------

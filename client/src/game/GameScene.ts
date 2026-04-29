@@ -62,6 +62,14 @@ export class GameScene extends Phaser.Scene {
   // Sticky notes visuales
   private stickyContainers: Map<string, Phaser.GameObjects.Container> = new Map();
 
+  // -----------------------------------------------------------------
+  // EDIT MODE (mobiliario)
+  // -----------------------------------------------------------------
+  private editMode = false;
+  private selectedFurnitureType: string | null = null;
+  private ghost?: Phaser.GameObjects.Container;
+  private lastFurnitureMoveTs = 0;
+
   private created = false;
 
   constructor() { super({ key: 'GameScene' }); }
@@ -98,6 +106,14 @@ export class GameScene extends Phaser.Scene {
       const obj: any = objs[0];
       if (obj?.getData) {
         const kind = obj.getData('kind');
+
+        // ---- Modo edición: click sobre mueble lo elimina ----
+        if (kind === 'furniture' && this.editMode) {
+          const id = obj.getData('furnitureId');
+          if (id) this.socket?.removeFurniture(id);
+          return;
+        }
+
         if (kind === 'chair') {
           const id = obj.getData('chairId');
           this.requestSit(id);
@@ -113,6 +129,14 @@ export class GameScene extends Phaser.Scene {
         }
       }
       const wp = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+
+      // ---- Modo edición: click en suelo coloca el tipo seleccionado ----
+      if (this.editMode && this.selectedFurnitureType) {
+        if (this.mapManager.collidesAt(wp.x, wp.y)) return;
+        this.socket?.placeFurniture(this.selectedFurnitureType, wp.x, wp.y);
+        return;
+      }
+
       this.clickTarget = { x: wp.x, y: wp.y };
       this.drawClickMarker(wp.x, wp.y);
       // Standup si estabas sentado
@@ -120,6 +144,25 @@ export class GameScene extends Phaser.Scene {
         this.socket?.stand();
         this.localData.sittingOn = undefined;
       }
+    });
+
+    // Drag de muebles colocados (modo edición)
+    this.input.on('drag', (_pointer: Phaser.Input.Pointer, obj: any, dragX: number, dragY: number) => {
+      if (!this.editMode) return;
+      if (!obj?.getData || obj.getData('kind') !== 'furniture') return;
+      obj.setPosition(dragX, dragY);
+      const id = obj.getData('furnitureId');
+      const now = performance.now();
+      if (id && now - this.lastFurnitureMoveTs > 60) {
+        this.lastFurnitureMoveTs = now;
+        this.socket?.moveFurniture(id, dragX, dragY);
+      }
+    });
+    this.input.on('dragend', (_pointer: Phaser.Input.Pointer, obj: any) => {
+      if (!this.editMode) return;
+      if (!obj?.getData || obj.getData('kind') !== 'furniture') return;
+      const id = obj.getData('furnitureId');
+      if (id) this.socket?.moveFurniture(id, obj.x, obj.y);
     });
 
     // Resize
@@ -196,6 +239,39 @@ export class GameScene extends Phaser.Scene {
     this.socket.onStickyList(list => list.forEach(n => this.addStickyVisual(n)));
     this.socket.onStickyCreate(n => this.addStickyVisual(n));
     this.socket.onStickyDelete(id => this.removeStickyVisual(id));
+
+    // Mobiliario colocado
+    this.socket.onFurnitureList(list => {
+      this.mapManager.clearPlaced();
+      for (const f of list) this.mapManager.addPlaced(f);
+    });
+    this.socket.onFurniturePlace(f => this.mapManager.addPlaced(f));
+    this.socket.onFurnitureMove(({ id, x, y }) => this.mapManager.movePlaced(id, x, y));
+    this.socket.onFurnitureRemove(id => this.mapManager.removePlaced(id));
+  }
+
+  // -----------------------------------------------------------------
+  // EDIT MODE API (lo llama GameContainer desde React)
+  // -----------------------------------------------------------------
+  setEditMode(on: boolean) {
+    this.editMode = on;
+    this.mapManager.setEditMode(on);
+    if (!on) {
+      this.selectedFurnitureType = null;
+      this.ghost?.destroy(); this.ghost = undefined;
+    }
+  }
+
+  setSelectedFurnitureType(type: string | null) {
+    this.selectedFurnitureType = type;
+    this.ghost?.destroy(); this.ghost = undefined;
+    if (type) {
+      // Ghost preview que sigue al puntero
+      const g = (this.mapManager as any).buildFurnitureContainer(type) as Phaser.GameObjects.Container;
+      g.setAlpha(0.5);
+      g.setDepth(9999);
+      this.ghost = g;
+    }
   }
 
   // -----------------------------------------------------------------
@@ -323,6 +399,12 @@ export class GameScene extends Phaser.Scene {
   // INPUT / UPDATE
   // -----------------------------------------------------------------
   update(time: number, deltaMs: number) {
+    // Ghost preview del mueble seleccionado siguiendo al puntero
+    if (this.editMode && this.ghost) {
+      const wp = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+      this.ghost.setPosition(wp.x, wp.y);
+    }
+
     if (!this.localPlayer || !this.localData || !this.socket) return;
 
     // Emote/note shortcuts (N para nueva sticky)

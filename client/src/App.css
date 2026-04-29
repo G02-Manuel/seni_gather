@@ -406,6 +406,23 @@ kbd {
 .btn-secondary:hover:not(:disabled) { transform: translateY(-1px); }
 .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.permanent-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: white;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.15s;
+}
+.btn-danger:hover { transform: translateY(-1px); filter: brightness(1.1); }
+
 /* =====================================================================
    ROOM ERROR MODAL
    ===================================================================== */
@@ -976,6 +993,83 @@ kbd {
   color: var(--fg-soft);
   z-index: 5;
   backdrop-filter: blur(8px);
+}
+
+/* =====================================================================
+   FURNITURE EDIT MODE
+   ===================================================================== */
+.edit-toggle-btn {
+  position: absolute;
+  top: 64px;
+  right: 14px;
+  z-index: 12;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s, filter 0.15s;
+}
+.edit-toggle-btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.edit-toggle-btn.active {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+}
+.furniture-panel {
+  position: absolute;
+  top: 110px;
+  right: 14px;
+  width: 240px;
+  z-index: 12;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+}
+.furniture-panel-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #c7d2fe;
+}
+.furniture-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.furniture-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 8px 4px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.furniture-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.furniture-btn.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.18);
+}
+.furniture-emoji { font-size: 22px; line-height: 1; }
+.furniture-label { font-size: 10px; color: var(--fg-soft); text-align: center; }
+.furniture-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--fg-soft);
+  line-height: 1.4;
 }
 
 /* =====================================================================

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MapDefinition, MapChair, MapTeleport, CONSTANTS } from '../../types';
+import { MapDefinition, MapChair, MapTeleport, CONSTANTS, PlacedFurniture } from '../../types';
 import { MAPS } from '../utils/MapDefinitions';
 
 export interface MapRenderResult {
@@ -28,6 +28,13 @@ export class MapManager {
   /** Todos los GameObjects creados por load() — para destruir en clear(). */
   private themed: Phaser.GameObjects.GameObject[] = [];
 
+  /** Mobiliario colocado en runtime (mapa de id -> contenedor). */
+  placedContainers: Map<string, Phaser.GameObjects.Container> = new Map();
+  /** Tipo guardado por id, para poder reconstruir si hace falta. */
+  placedTypes: Map<string, string> = new Map();
+  /** Estado de “modo edición” (lo activa GameContainer/GameScene). */
+  editMode = false;
+
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
   }
@@ -46,6 +53,117 @@ export class MapManager {
     this.collisionRects = [];
     this.chairs = [];
     this.teleports = [];
+    this.clearPlaced();
+  }
+
+  // -----------------------------------------------------------------
+  // PLACED FURNITURE (mobiliario dinámico colocado por el creador)
+  // -----------------------------------------------------------------
+  clearPlaced() {
+    for (const c of this.placedContainers.values()) c.destroy();
+    this.placedContainers.clear();
+    this.placedTypes.clear();
+  }
+
+  addPlaced(item: PlacedFurniture) {
+    if (this.placedContainers.has(item.id)) {
+      this.movePlaced(item.id, item.x, item.y);
+      return;
+    }
+    const c = this.buildFurnitureContainer(item.type);
+    c.setPosition(item.x, item.y);
+    c.setDepth(item.y / 100);
+    c.setData('furnitureId', item.id);
+    c.setData('furnitureType', item.type);
+    c.setData('kind', 'furniture');
+    this.placedContainers.set(item.id, c);
+    this.placedTypes.set(item.id, item.type);
+    if (this.editMode) this.applyEditModeTo(c);
+  }
+
+  movePlaced(id: string, x: number, y: number) {
+    const c = this.placedContainers.get(id);
+    if (!c) return;
+    c.setPosition(x, y);
+    c.setDepth(y / 100);
+  }
+
+  removePlaced(id: string) {
+    const c = this.placedContainers.get(id);
+    if (!c) return;
+    c.destroy();
+    this.placedContainers.delete(id);
+    this.placedTypes.delete(id);
+  }
+
+  /** Activa/desactiva interactividad de drag y borrado en muebles colocados. */
+  setEditMode(on: boolean) {
+    this.editMode = on;
+    for (const c of this.placedContainers.values()) {
+      this.applyEditModeTo(c);
+    }
+  }
+
+  private applyEditModeTo(c: Phaser.GameObjects.Container) {
+    if (this.editMode) {
+      c.setSize(48, 48);
+      c.setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(-24, -24, 48, 48),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: true,
+        draggable: true,
+      } as any);
+      this.scene.input.setDraggable(c, true);
+    } else {
+      try { this.scene.input.setDraggable(c, false); } catch {}
+      try { c.disableInteractive(); } catch {}
+    }
+  }
+
+  /**
+   * Construye un contenedor con la geometría visual del mueble en
+   * coordenadas relativas (0,0). Lo reutilizamos para todos los placed.
+   */
+  private buildFurnitureContainer(type: string): Phaser.GameObjects.Container {
+    const c = this.scene.add.container(0, 0);
+    if (type === 'desk') {
+      c.add(this.scene.add.rectangle(0, 0, 64, 28, 0x6b4423));
+      c.add(this.scene.add.rectangle(0, -14, 64, 4, 0x000000, 0.45));
+    } else if (type === 'tree') {
+      c.add(this.scene.add.rectangle(0, 10, 10, 22, 0x6b4423));
+      c.add(this.scene.add.circle(-10, -4, 16, 0x166534));
+      c.add(this.scene.add.circle(10, -4, 16, 0x15803d));
+      c.add(this.scene.add.circle(0, -16, 18, 0x16a34a));
+    } else if (type === 'bench') {
+      c.add(this.scene.add.rectangle(0, 0, 56, 12, 0x8b5a2b).setStrokeStyle(1, 0x000000, 0.4));
+      c.add(this.scene.add.rectangle(0, -10, 56, 4, 0x6b4423));
+      c.add(this.scene.add.rectangle(-22, 10, 4, 10, 0x6b4423));
+      c.add(this.scene.add.rectangle(22, 10, 4, 10, 0x6b4423));
+    } else if (type === 'picnictable') {
+      c.add(this.scene.add.rectangle(0, 0, 96, 36, 0xa16207).setStrokeStyle(2, 0x000000, 0.3));
+      c.add(this.scene.add.rectangle(0, -22, 96, 8, 0xeab308));
+      c.add(this.scene.add.rectangle(0, 22, 96, 8, 0xeab308));
+    } else if (type === 'fire') {
+      c.add(this.scene.add.circle(0, 0, 14, 0x57534e));
+      c.add(this.scene.add.circle(0, -4, 9, 0xf97316));
+      c.add(this.scene.add.circle(0, -8, 5, 0xfde047));
+    } else if (type === 'flower') {
+      c.add(this.scene.add.circle(-4, -2, 3, 0xec4899));
+      c.add(this.scene.add.circle(4, -2, 3, 0xfbbf24));
+      c.add(this.scene.add.circle(0, 4, 3, 0xa78bfa));
+    } else {
+      let icon = '📦';
+      if (type === 'plant') icon = this.current?.id === 'nature' ? '🌳' : '🪴';
+      else if (type === 'coffee') icon = '☕';
+      else if (type === 'screen') icon = '🖥️';
+      else if (type === 'lamp')   icon = '💡';
+      else if (type === 'chair')  icon = '🪑';
+      else if (type === 'sofa')   icon = '🛋️';
+      else if (type === 'tv')     icon = '📺';
+      else if (type === 'books')  icon = '📚';
+      c.add(this.scene.add.text(0, 0, icon, { fontSize: '24px' }).setOrigin(0.5));
+    }
+    return c;
   }
 
   /** Carga un template por id y lo renderiza. */

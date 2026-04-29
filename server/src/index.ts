@@ -60,6 +60,33 @@ app.get('/api/permanent-rooms', async (req, res) => {
   }
 });
 
+/**
+ * Eliminar un espacio permanente. Solo el creador puede hacerlo.
+ * Validación simple por nombre (ownerName en query). El borrado en BD
+ * cascadea a sticky_notes y whiteboard_strokes por la FK ON DELETE CASCADE.
+ */
+app.delete('/api/permanent-rooms/:code', async (req, res) => {
+  const code = String(req.params.code || '').toUpperCase().trim();
+  const ownerName = String((req.query.ownerName as string) || '').trim();
+  if (!code || !ownerName) {
+    return res.status(400).json({ error: 'BAD_REQUEST' });
+  }
+  try {
+    const room = await Storage.getRoom(code);
+    if (!room) return res.status(404).json({ error: 'NOT_FOUND' });
+    if ((room.ownerName || '').trim().toLowerCase() !== ownerName.toLowerCase()) {
+      return res.status(403).json({ error: 'FORBIDDEN' });
+    }
+    const drop = gameServer.dropPermanentRoom(code);
+    if (!drop.ok) return res.status(409).json({ error: drop.reason });
+    await Storage.deleteRoom(code);
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('delete room error:', e.message);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Manejo de conexiones Socket.io
 io.on(SocketEvents.CONNECTION, (socket) => {
   console.log(`🟢 Cliente conectado: ${socket.id}`);
