@@ -73,28 +73,110 @@ export class WebRTCManager {
   // MEDIA
   // -----------------------------------------------------------------
   async enableMic(): Promise<boolean> {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: this.camEnabled,
-      });
-      await this.replaceLocalStream(stream);
-      this.micEnabled = true;
-      return true;
-    } catch (e) {
-      this.events.onError?.(e as Error);
-      return false;
-    }
+    return this.setMicEnabled(true);
   }
 
   async enableCam(): Promise<boolean> {
+    return this.setCamEnabled(true);
+  }
+
+  /**
+   * Activa/desactiva el micrófono REALMENTE.
+   * Al desactivar llama a track.stop() y elimina el sender en cada peer,
+   * lo que apaga el LED del sistema operativo.
+   */
+  async setMicEnabled(on: boolean): Promise<boolean> {
+    if (on) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        const track = stream.getAudioTracks()[0];
+        if (!track) return false;
+        await this.addLocalTrack(track);
+        this.micEnabled = true;
+        return true;
+      } catch (e) {
+        this.events.onError?.(e as Error);
+        return false;
+      }
+    } else {
+      this.removeLocalTracksOfKind('audio');
+      this.micEnabled = false;
+      return true;
+    }
+  }
+
+  /**
+   * Activa/desactiva la cámara REALMENTE (libera el dispositivo, apaga LED).
+   */
+  async setCamEnabled(on: boolean): Promise<boolean> {
+    if (on) {
+      try {
+        // Si estamos compartiendo pantalla, no pisamos esa pista de vídeo.
+        if (this.screenSharing) return false;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 24 } },
+        });
+        const track = stream.getVideoTracks()[0];
+        if (!track) return false;
+        await this.addLocalTrack(track);
+        this.camEnabled = true;
+        return true;
+      } catch (e) {
+        this.events.onError?.(e as Error);
+        return false;
+      }
+    } else {
+      this.removeLocalTracksOfKind('video');
+      this.camEnabled = false;
+      return true;
+    }
+  }
+
+  /**
+   * Soft-mute del mic (sin liberar el dispositivo). Útil para Push-to-Talk:
+   * no apaga el LED pero deja de enviar audio a los peers.
+   */
+  toggleMicTrack(on: boolean) {
+    this.localStream?.getAudioTracks().forEach(t => (t.enabled = on));
+  }
+  /** Soft-mute de la cámara (sin liberar el dispositivo). */
+  toggleCamTrack(on: boolean) {
+    this.localStream?.getVideoTracks().forEach(t => (t.enabled = on));
+  }
+
+  // -----------------------------------------------------------------
+  // SCREEN SHARING
+  // -----------------------------------------------------------------
+  public screenSharing = false;
+  private cameraTrackBeforeShare: MediaStreamTrack | null = null;
+
+  /** Solicita compartir pantalla. Reemplaza la pista de vídeo en peers. */
+  async startScreenShare(): Promise<boolean> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: this.micEnabled ? { echoCancellation: true, noiseSuppression: true } : false,
-        video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 24 } },
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15 } },
+        audio: false,
       });
-      await this.replaceLocalStream(stream);
-      this.camEnabled = true;
+      const screenTrack = stream.getVideoTracks()[0];
+      if (!screenTrack) return false;
+
+      // Guardar referencia a la cámara para restaurar al terminar
+      const currentCam = this.localStream?.getVideoTracks()[0] || null;
+      this.cameraTrackBeforeShare = currentCam && currentCam.readyState === 'live' ? currentCam : null;
+
+      // Si la cámara estaba activa, la dejamos viva pero quitamos del stream local
+      if (currentCam) {
+        this.localStream?.removeTrack(currentCam);
+      }
+      await this.addLocalTrack(screenTrack);
+      this.screenSharing = true;
+
+      // Cuando el usuario detiene el share desde el navegador
+      screenTrack.addEventListener('ended', () => {
+        this.stopScreenShare().catch(() => {});
+      });
       return true;
     } catch (e) {
       this.events.onError?.(e as Error);
@@ -102,13 +184,73 @@ export class WebRTCManager {
     }
   }
 
-  toggleMicTrack(on: boolean) {
+  async stopScreenShare(): Promise<void> {
+    if (!this.screenSharing) return;
+    this.removeLocalTracksOfKind('video');
+    this.screenSharing = false;
+
+    // Restaurar cámara si estaba activa antes
+    if (this.cameraTrackBeforeShare && this.cameraTrackBeforeShare.readyState === 'live') {
+      await this.addLocalTrack(this.cameraTrackBeforeShare);
+      this.camEnabled = true;
+    } else if (this.camEnabled) {
+      // Re-pedir cámara nueva
+      await this.setCamEnabled(true);
+    }
+    this.cameraTrackBeforeShare = null;
+  }
+
+  // -----------------------------------------------------------------
+  // TRACK HELPERS
+  // -----------------------------------------------------------------
+  private ensureLocalStream(): MediaStream {
+    if (!this.localStream) {
+      this.localStream = new MediaStream();
+      this.events.onLocalStream?.(this.localStream);
+    }
+    return this.localStream;
+  }
+
+  /** Añade (o reemplaza) una pista de un tipo y la propaga a todos los peers. */
+  private async addLocalTrack(track: MediaStreamTrack) {
+    const stream = this.ensureLocalStream();
+    // Quitar pistas existentes del mismo tipo (sin pararlas; la nueva las sustituye)
+    for (const t of stream.getTracks().filter(t => t.kind === track.kind && t !== track)) {
+      stream.removeTrack(t);
+      try { t.stop(); } catch {}
+    }
+    stream.addTrack(track);
+    this.events.onLocalStream?.(stream);
+
+    for (const info of this.peers.values()) {
+      const sender = info.pc.getSenders().find(s => s.track && s.track.kind === track.kind);
+      if (sender) {
+        try { await sender.replaceTrack(track); } catch (e) { this.events.onError?.(e as Error); }
+      } else {
+        try { info.pc.addTrack(track, stream); } catch (e) { this.events.onError?.(e as Error); }
+      }
+    }
+  }
+
+  /** Quita y para todas las pistas de un tipo, y elimina el sender en peers. */
+  private removeLocalTracksOfKind(kind: 'audio' | 'video') {
+    if (!this.localStream) return;
+    for (const t of this.localStream.getTracks().filter(t => t.kind === kind)) {
+      this.localStream.removeTrack(t);
+      try { t.stop(); } catch {}
+    }
+    for (const info of this.peers.values()) {
+      const sender = info.pc.getSenders().find(s => s.track && s.track.kind === kind);
+      if (sender) {
+        try { info.pc.removeTrack(sender); } catch {}
+      }
+    }
+    this.events.onLocalStream?.(this.localStream);
+  }
+
+  toggleMicTrackLegacy(on: boolean) {
     this.localStream?.getAudioTracks().forEach(t => (t.enabled = on));
     this.micEnabled = on;
-  }
-  toggleCamTrack(on: boolean) {
-    this.localStream?.getVideoTracks().forEach(t => (t.enabled = on));
-    this.camEnabled = on;
   }
 
   async stopMedia() {
@@ -116,6 +258,7 @@ export class WebRTCManager {
     this.localStream = null;
     this.micEnabled = false;
     this.camEnabled = false;
+    this.screenSharing = false;
     this.events.onLocalStream?.(null);
   }
 

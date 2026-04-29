@@ -5,6 +5,7 @@ interface Props {
   micOn: boolean;
   camOn: boolean;
   muted: boolean;
+  sharingScreen?: boolean;
   onToggleMic: () => void;
   onToggleCam: () => void;
   onToggleMute: () => void;
@@ -16,7 +17,7 @@ interface Props {
 }
 
 const BottomBar: React.FC<Props> = ({
-  micOn, camOn, muted,
+  micOn, camOn, muted, sharingScreen,
   onToggleMic, onToggleCam, onToggleMute,
   onOpenSettings, onOpenAvatar, onOpenWhiteboard, onEmote, onShareScreen,
 }) => {
@@ -33,7 +34,13 @@ const BottomBar: React.FC<Props> = ({
         {muted ? '🔕' : '🔔'}
       </button>
       {onShareScreen && (
-        <button className="bb-btn" title="Compartir pantalla" onClick={onShareScreen}>🖥️</button>
+        <button
+          className={`bb-btn ${sharingScreen ? 'on' : ''}`}
+          title={sharingScreen ? 'Detener pantalla compartida' : 'Compartir pantalla'}
+          onClick={onShareScreen}
+        >
+          🖥️
+        </button>
       )}
       <button className="bb-btn" title="Pizarra" onClick={onOpenWhiteboard}>🖊️</button>
       <button className="bb-btn" title="Emote" onClick={() => setEmotesOpen(o => !o)}>

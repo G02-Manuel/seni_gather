@@ -61,6 +61,7 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
   const [speakingIds, setSpeakingIds] = useState<Set<string>>(new Set());
   const [iAmSpeaking, setIAmSpeaking] = useState(false);
 
+  const [sharingScreen, setSharingScreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAvatar, setShowAvatar] = useState(false);
   const [showWhiteboard, setShowWhiteboard] = useState(false);
@@ -234,15 +235,9 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
   // -------------------------------------------------------------------
   const toggleMic = async () => {
     const rtc = rtcRef.current!;
-    if (!rtc.getLocalStream() || !rtc.getLocalStream()?.getAudioTracks().length) {
-      const ok = await rtc.enableMic();
-      if (ok) {
-        setMicOn(true);
-        sceneRef.current?.setLocalMicCam(true, camOn);
-      }
-    } else {
-      const next = !micOn;
-      rtc.toggleMicTrack(next);
+    const next = !micOn;
+    const ok = await rtc.setMicEnabled(next);
+    if (ok) {
       setMicOn(next);
       sceneRef.current?.setLocalMicCam(next, camOn);
     }
@@ -250,18 +245,29 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
 
   const toggleCam = async () => {
     const rtc = rtcRef.current!;
-    if (!rtc.getLocalStream() || !rtc.getLocalStream()?.getVideoTracks().length) {
-      const ok = await rtc.enableCam();
-      if (ok) {
-        setCamOn(true);
-        setMicOn(rtc.micEnabled);
-        sceneRef.current?.setLocalMicCam(rtc.micEnabled, true);
-      }
-    } else {
-      const next = !camOn;
-      rtc.toggleCamTrack(next);
+    const next = !camOn;
+    const ok = await rtc.setCamEnabled(next);
+    if (ok) {
       setCamOn(next);
       sceneRef.current?.setLocalMicCam(micOn, next);
+    }
+  };
+
+  const toggleScreenShare = async () => {
+    const rtc = rtcRef.current!;
+    if (rtc.screenSharing) {
+      await rtc.stopScreenShare();
+      setSharingScreen(false);
+      // Si la cámara seguía conceptualmente apagada, reflejarlo
+      setCamOn(rtc.camEnabled);
+      sceneRef.current?.setLocalMicCam(micOn, rtc.camEnabled);
+    } else {
+      const ok = await rtc.startScreenShare();
+      if (ok) {
+        setSharingScreen(true);
+        // Mientras se comparte, se reemplaza el vídeo de cámara
+        sceneRef.current?.setLocalMicCam(micOn, true);
+      }
     }
   };
 
@@ -343,9 +349,11 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
         micOn={micOn}
         camOn={camOn}
         muted={muted}
+        sharingScreen={sharingScreen}
         onToggleMic={toggleMic}
         onToggleCam={toggleCam}
         onToggleMute={() => setMuted(m => !m)}
+        onShareScreen={toggleScreenShare}
         onOpenSettings={() => setShowSettings(true)}
         onOpenAvatar={() => setShowAvatar(true)}
         onOpenWhiteboard={() => setShowWhiteboard(true)}
