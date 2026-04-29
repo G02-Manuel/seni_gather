@@ -149,6 +149,14 @@ const GameContainer: React.FC<Props> = ({ playerName, avatar, mode, templateId, 
         pixelArt: true,
         physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 0 }, debug: false } },
         scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+        // Desactivamos el SoundManager interno de Phaser: no usamos sus sonidos
+        // y evita errores "Cannot suspend/resume a closed AudioContext" cuando
+        // el juego se destruye o cambia visibilidad. Usamos AudioManager propio.
+        audio: { noAudio: true },
+        // Evita que Phaser pause el ciclo cuando la pestaña pierde foco (causa
+        // los suspend/resume sobre el AudioContext).
+        disableContextMenu: true,
+        fps: { forceSetTimeOut: true },
       };
       game = new Phaser.Game(config);
       phaserRef.current = game;

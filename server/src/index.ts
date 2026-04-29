@@ -50,8 +50,14 @@ app.get('/api/rooms', (req, res) => {
   res.json(gameServer.getRooms());
 });
 
-app.get('/api/permanent-rooms', (req, res) => {
-  res.json(Storage.listRooms());
+app.get('/api/permanent-rooms', async (req, res) => {
+  try {
+    const rows = await Storage.listRooms();
+    res.json(rows);
+  } catch (e: any) {
+    console.error('listRooms error:', e.message);
+    res.status(500).json([]);
+  }
 });
 
 // Manejo de conexiones Socket.io

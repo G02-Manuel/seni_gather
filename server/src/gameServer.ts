@@ -160,15 +160,15 @@ export class GameServer {
         name: room.name,
         ownerName: room.ownerName,
         createdAt: Date.now(),
-      });
+      }).catch((e: Error) => console.error('saveRoom error:', e.message));
     }
     console.log(`🆕 Sala ${code} (${meta.name})${room.permanent ? ' [PERMANENTE]' : ''} creada`);
     return room;
   }
 
   /** Carga una sala permanente desde la BD a memoria. */
-  private loadPermanentRoom(code: string): RoomState | null {
-    const persisted = Storage.getRoom(code);
+  private async loadPermanentRoom(code: string): Promise<RoomState | null> {
+    const persisted = await Storage.getRoom(code);
     if (!persisted) return null;
     const tplId = (TEMPLATES[persisted.templateId as TemplateId] ? persisted.templateId : 'office') as TemplateId;
     const room = this.createRoom(tplId, {
@@ -178,10 +178,11 @@ export class GameServer {
       code: persisted.code,
     });
     // Restaurar contenido
-    for (const n of Storage.listStickies(code)) {
+    const stickies = await Storage.listStickies(code);
+    for (const n of stickies) {
       room.stickyNotes.set(n.id, n);
     }
-    room.whiteboardStrokes = Storage.listStrokes(code);
+    room.whiteboardStrokes = await Storage.listStrokes(code);
     console.log(`📂 Sala ${code} restaurada (${room.stickyNotes.size} notas, ${room.whiteboardStrokes.length} trazos)`);
     return room;
   }
@@ -240,7 +241,8 @@ export class GameServer {
         if (room.permanent) {
           // Persistir snapshot de pizarra (las notas ya se persisten al crear/borrar)
           if (room.whiteboardDirty) {
-            Storage.replaceStrokes(room.id, room.whiteboardStrokes);
+            Storage.replaceStrokes(room.id, room.whiteboardStrokes)
+              .catch((e: Error) => console.error('replaceStrokes error:', e.message));
             room.whiteboardDirty = false;
           }
           this.rooms.delete(room.id);
@@ -269,7 +271,7 @@ export class GameServer {
     this.placePlayerInRoom(socket, room, data.playerName, data.avatar);
   }
 
-  private handleRoomJoin(socket: Socket, data: JoinPayload) {
+  private async handleRoomJoin(socket: Socket, data: JoinPayload) {
     const code = (data.roomCode || '').toUpperCase().trim();
     if (!code) {
       socket.emit(SocketEvents.ROOM_ERROR, { code: 'EMPTY_CODE', message: 'Ingresa un código de sala' });
@@ -278,7 +280,7 @@ export class GameServer {
     let room = this.rooms.get(code);
     if (!room) {
       // Intentar cargar desde almacenamiento permanente
-      room = this.loadPermanentRoom(code) || undefined;
+      room = (await this.loadPermanentRoom(code)) || undefined;
     }
     if (!room) {
       socket.emit(SocketEvents.ROOM_ERROR, { code: 'NOT_FOUND', message: `No existe la sala "${code}"` });
@@ -483,7 +485,7 @@ export class GameServer {
       createdAt: Date.now(),
     };
     room.stickyNotes.set(note.id, note);
-    if (room.permanent) Storage.saveSticky(room.id, note);
+    if (room.permanent) Storage.saveSticky(room.id, note).catch((e: Error) => console.error('saveSticky:', e.message));
     this.io.to(p.roomId).emit(SocketEvents.STICKY_CREATE, note);
   }
 
@@ -495,7 +497,7 @@ export class GameServer {
     const note = room.stickyNotes.get(id);
     if (!note || note.authorId !== p.id) return;
     room.stickyNotes.delete(id);
-    if (room.permanent) Storage.deleteSticky(id);
+    if (room.permanent) Storage.deleteSticky(id).catch((e: Error) => console.error('deleteSticky:', e.message));
     this.io.to(p.roomId).emit(SocketEvents.STICKY_DELETE, id);
   }
 
@@ -522,7 +524,8 @@ export class GameServer {
     if (!room) return;
     room.whiteboardStrokes = [];
     if (room.permanent) {
-      Storage.replaceStrokes(room.id, []);
+      Storage.replaceStrokes(room.id, [])
+        .catch((e: Error) => console.error('replaceStrokes clear:', e.message));
       room.whiteboardDirty = false;
     }
     this.io.to(p.roomId).emit(SocketEvents.WHITEBOARD_CLEAR);
