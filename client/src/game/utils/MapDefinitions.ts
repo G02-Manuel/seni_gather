@@ -37,118 +37,231 @@ const px = (tile: number) => tile * T + T / 2;
 //  0 floor base, 1 wall, 2 carpet, 3 wood, 4 dirt/path, 5 grass, 6 water/glass
 
 // =====================================================================
-// 1) OFICINA TRADICIONAL
+// 1) OFICINA — mapa compuesto con 6 áreas LimeZu
 // =====================================================================
+//
+// Layout (en tiles, T=32 px):
+//
+//   ┌──Lounge──┐ . . . . ┌──Café─┐ . ┌─Cowork─┐
+//   │ 14 × 14  │ . . . . │ 12×10 │ . │ 11×10  │
+//   └──────────┘ . . . . └───────┘ . └────────┘
+//        │     . . . . . │ . . . . . │
+//        │     . . . . . │ . . . . . │  (corredor cafe-cowork horizontal)
+//   ┌────Gym──────┐  .  ┌──Audio────┐
+//   │   19 × 15   │  .  │   16 × 10 │
+//   └─────────────┘  .  └───────────┘
+//                  . . . │ . . . . . . .
+//                  ┌──Galería────────┐
+//                  │      20 × 15    │
+//                  └─────────────────┘
+//
+// Mundo total: 41 × 50 tiles = 1312 × 1600 px.
+//
 function buildOffice(): MapDefinition {
-  const W = 70, H = 45;
+  type Door = { side: 'top' | 'right' | 'bottom' | 'left'; offset: number; width: number };
+  type AreaDef = {
+    id: string;
+    name: string;
+    key: string;
+    url: string;
+    tx: number;          // posición tile X de la esquina sup-izq
+    ty: number;          // posición tile Y de la esquina sup-izq
+    tw: number;          // ancho en tiles
+    th: number;          // alto en tiles
+    zoneColor: string;
+    /** Puertas: lado + offset desde esquina sup/izq + ancho en tiles. */
+    doors: Door[];
+  };
+
+  // Posiciones cuidadosamente alineadas para que las puertas coincidan
+  // con los corredores verticales/horizontales que las conectan.
+  const areas: AreaDef[] = [
+    { id: 'lounge',  name: 'Sala de estar', key: 'map_area_lounge',  url: '/maps/area_lounge.png',
+      tx: 0,  ty: 0,  tw: 14, th: 14, zoneColor: '#4ade80',
+      doors: [{ side: 'bottom', offset: 7, width: 2 }] },
+
+    { id: 'cafe',    name: 'Cafetería',     key: 'map_area_cafe',    url: '/maps/area_cafe.png',
+      tx: 16, ty: 2,  tw: 12, th: 10, zoneColor: '#fb923c',
+      doors: [
+        { side: 'bottom', offset: 6, width: 2 },
+        { side: 'right',  offset: 6, width: 2 },
+      ] },
+
+    { id: 'cowork',  name: 'Coworking',     key: 'map_area_cowork',  url: '/maps/area_cowork.png',
+      tx: 30, ty: 2,  tw: 11, th: 10, zoneColor: '#22d3ee',
+      doors: [{ side: 'left', offset: 6, width: 2 }] },
+
+    { id: 'gym',     name: 'Gimnasio',      key: 'map_area_gym',     url: '/maps/area_gym.png',
+      tx: 0,  ty: 18, tw: 19, th: 15, zoneColor: '#f43f5e',
+      doors: [{ side: 'top', offset: 7, width: 2 }] },
+
+    { id: 'audio',   name: 'Auditorio',     key: 'map_area_audio',   url: '/maps/area_audio.png',
+      tx: 20, ty: 18, tw: 16, th: 10, zoneColor: '#a78bfa',
+      doors: [
+        { side: 'top',    offset: 2, width: 2 },
+        { side: 'bottom', offset: 2, width: 2 },
+      ] },
+
+    { id: 'gallery', name: 'Galería',       key: 'map_area_gallery', url: '/maps/area_gallery.png',
+      tx: 8,  ty: 35, tw: 20, th: 15, zoneColor: '#f0abfc',
+      doors: [{ side: 'top', offset: 14, width: 2 }] },
+  ];
+
+  const W = 41, H = 50;
   const tiles = blank(W, H);
-  withBorder(tiles);
+  const ec: { x: number; y: number; width: number; height: number }[] = [];
 
-  // Oficina (top-left)
-  rect(tiles, 4, 4, 8, 6, 2);
-  rect(tiles, 16, 4, 12, 6, 2);
-  rect(tiles, 4, 14, 24, 6, 2);
-  rect(tiles, 14, 11, 2, 8, 3);
-  hWall(tiles, 4, 10, 8);  tiles[10][7] = 0; tiles[10][8] = 0;
-  hWall(tiles, 16, 10, 12); tiles[10][20] = 0; tiles[10][21] = 0;
+  // ---- Construir paredes a partir de los doors de cada área ----
+  const addWalls = (a: AreaDef) => {
+    const sides: Door['side'][] = ['top', 'right', 'bottom', 'left'];
+    for (const side of sides) {
+      const doors = a.doors.filter(d => d.side === side).sort((a1, a2) => a1.offset - a2.offset);
 
-  // Pared vertical separadora
-  vWall(tiles, 30, 1, 22);
-  tiles[6][30] = 0;  tiles[7][30] = 0;
-  tiles[16][30] = 0; tiles[17][30] = 0;
+      if (side === 'top' || side === 'bottom') {
+        const y = (side === 'top' ? a.ty : a.ty + a.th - 1) * T;
+        let cur = a.tx;
+        for (const d of doors) {
+          const start = a.tx + d.offset;
+          if (start > cur) ec.push({ x: cur * T, y, width: (start - cur) * T, height: T });
+          cur = start + d.width;
+        }
+        if (cur < a.tx + a.tw) ec.push({ x: cur * T, y, width: (a.tx + a.tw - cur) * T, height: T });
+      } else {
+        const x = (side === 'left' ? a.tx : a.tx + a.tw - 1) * T;
+        let cur = a.ty;
+        for (const d of doors) {
+          const start = a.ty + d.offset;
+          if (start > cur) ec.push({ x, y: cur * T, width: T, height: (start - cur) * T });
+          cur = start + d.width;
+        }
+        if (cur < a.ty + a.th) ec.push({ x, y: cur * T, width: T, height: (a.ty + a.th - cur) * T });
+      }
+    }
+  };
+  for (const a of areas) addWalls(a);
 
-  // Coworking (top-right)
-  rect(tiles, 33, 3, 14, 8, 3);
-  rect(tiles, 50, 3, 17, 9, 2);
-  rect(tiles, 35, 14, 8, 6, 2);
-  rect(tiles, 52, 14, 14, 6, 2);
+  // Borde exterior del mundo (para que nadie salga).
+  ec.push({ x: 0, y: 0, width: W * T, height: T });
+  ec.push({ x: 0, y: (H - 1) * T, width: W * T, height: T });
+  ec.push({ x: 0, y: 0, width: T, height: H * T });
+  ec.push({ x: (W - 1) * T, y: 0, width: T, height: H * T });
 
-  // Pared horizontal hacia auditorio
-  hWall(tiles, 1, 23, 68);
-  tiles[23][14] = 0; tiles[23][15] = 0;
-  tiles[23][35] = 0; tiles[23][36] = 0;
-  tiles[23][55] = 0; tiles[23][56] = 0;
+  // ---- Corredores entre áreas (en tiles, x/y/width/height) ----
+  // Cada corredor extiende 1 tile DENTRO de cada área conectada para
+  // perforar visualmente la pared del PNG.
+  // Los corredores se renderizan en MapManager con depth -94 (encima).
+  const corridors = [
+    // 1. Lounge ↔ Gym (vertical, col 7-8, filas 13..18)
+    //    Lounge bottom door: world col 7-8, row 13. Gym top door: col 7-8, row 18.
+    { x: 7,  y: 13, width: 2, height: 6 },
 
-  // Auditorio
-  rect(tiles, 8, 38, 54, 4, 3);
-  for (let row = 0; row < 4; row++) rect(tiles, 8, 26 + row * 3, 54, 2, 2);
+    // 2. Cafe ↔ Audio (vertical, col 22-23, filas 11..18)
+    //    Cafe bottom door: world col 22-23, row 11. Audio top door: col 22-23, row 18.
+    { x: 22, y: 11, width: 2, height: 8 },
+
+    // 3. Audio ↔ Gallery (vertical, col 22-23, filas 27..35)
+    //    Audio bottom door: world col 22-23, row 27. Gallery top door: col 22-23, row 35.
+    { x: 22, y: 27, width: 2, height: 9 },
+
+    // 4. Cafe ↔ Cowork (horizontal, filas 8-9, cols 27..31)
+    //    Cafe right door: world col 27, rows 8-9. Cowork left door: col 30, rows 8-9.
+    { x: 27, y: 8,  width: 4, height: 2 },
+  ];
+
+  // ---- Paredes adicionales: lados largos de los corredores ----
+  // Para que el corredor se vea como un pasillo cerrado (no un campo abierto).
+  // Cada corredor puro (sin tocar áreas) necesita pared a los lados.
+  const corridorWalls: { x: number; y: number; width: number; height: number }[] = [
+    // Corredor 1 (vertical x=7-8, y=13..18) — sólo zona exterior y=14..17
+    { x: 6 * T, y: 14 * T, width: T, height: 4 * T },   // pared izquierda
+    { x: 9 * T, y: 14 * T, width: T, height: 4 * T },   // pared derecha
+    // Corredor 2 (vertical x=22-23, y=11..18) — exterior y=12..17
+    { x: 21 * T, y: 12 * T, width: T, height: 6 * T },
+    { x: 24 * T, y: 12 * T, width: T, height: 6 * T },
+    // Corredor 3 (vertical x=22-23, y=27..35) — exterior y=28..34
+    { x: 21 * T, y: 28 * T, width: T, height: 7 * T },
+    { x: 24 * T, y: 28 * T, width: T, height: 7 * T },
+    // Corredor 4 (horizontal y=8-9, x=27..31) — exterior x=28..29
+    { x: 28 * T, y: 7 * T,  width: 2 * T, height: T },
+    { x: 28 * T, y: 10 * T, width: 2 * T, height: T },
+  ];
+  ec.push(...corridorWalls);
+
+  // ---- Sillas dentro de cada área ----
+  const ax = (a: AreaDef, tx: number) => (a.tx + tx) * T + T / 2;
+  const ay = (a: AreaDef, ty: number) => (a.ty + ty) * T + T / 2;
+  const A = Object.fromEntries(areas.map(a => [a.id, a])) as Record<string, AreaDef>;
 
   const chairs = [
-    { id: 'office_c1', x: px(6),  y: px(6), facing: 'right' as const },
-    { id: 'office_c2', x: px(10), y: px(6), facing: 'left' as const },
-    { id: 'office_c3', x: px(6),  y: px(8), facing: 'right' as const },
-    { id: 'office_c4', x: px(10), y: px(8), facing: 'left' as const },
-    { id: 'office_c5', x: px(20), y: px(6), facing: 'right' as const },
-    { id: 'office_c6', x: px(26), y: px(6), facing: 'left' as const },
-    { id: 'office_c7', x: px(20), y: px(8), facing: 'right' as const },
-    { id: 'office_c8', x: px(26), y: px(8), facing: 'left' as const },
-    { id: 'office_c9',  x: px(7),  y: px(16), facing: 'down' as const },
-    { id: 'office_c10', x: px(11), y: px(16), facing: 'down' as const },
-    { id: 'office_c11', x: px(20), y: px(16), facing: 'down' as const },
-    { id: 'office_c12', x: px(24), y: px(16), facing: 'down' as const },
-    { id: 'cw_c1', x: px(35), y: px(5), facing: 'down' as const },
-    { id: 'cw_c2', x: px(39), y: px(5), facing: 'down' as const },
-    { id: 'cw_c3', x: px(43), y: px(5), facing: 'down' as const },
-    { id: 'cw_c4', x: px(35), y: px(9), facing: 'up' as const },
-    { id: 'cw_c5', x: px(39), y: px(9), facing: 'up' as const },
-    { id: 'cw_c6', x: px(43), y: px(9), facing: 'up' as const },
-    { id: 'cw_c7',  x: px(54), y: px(6), facing: 'right' as const },
-    { id: 'cw_c8',  x: px(64), y: px(6), facing: 'left' as const },
-    { id: 'cw_c9',  x: px(38), y: px(17), facing: 'down' as const },
-    { id: 'cw_c10', x: px(58), y: px(17), facing: 'down' as const },
+    // Lounge — sillón junto a chimenea + mesa de café
+    { id: 'lounge_c1', x: ax(A.lounge, 4),  y: ay(A.lounge, 3),  facing: 'right' as const },
+    { id: 'lounge_c2', x: ax(A.lounge, 8),  y: ay(A.lounge, 3),  facing: 'left'  as const },
+    { id: 'lounge_c3', x: ax(A.lounge, 4),  y: ay(A.lounge, 7),  facing: 'right' as const },
+    { id: 'lounge_c4', x: ax(A.lounge, 8),  y: ay(A.lounge, 7),  facing: 'left'  as const },
+    // Café — 4 mesas
+    { id: 'cafe_c1', x: ax(A.cafe, 3),  y: ay(A.cafe, 4), facing: 'right' as const },
+    { id: 'cafe_c2', x: ax(A.cafe, 8),  y: ay(A.cafe, 4), facing: 'left'  as const },
+    { id: 'cafe_c3', x: ax(A.cafe, 3),  y: ay(A.cafe, 7), facing: 'right' as const },
+    { id: 'cafe_c4', x: ax(A.cafe, 8),  y: ay(A.cafe, 7), facing: 'left'  as const },
+    // Coworking — 4 escritorios
+    { id: 'cowork_c1', x: ax(A.cowork, 2), y: ay(A.cowork, 3), facing: 'down' as const },
+    { id: 'cowork_c2', x: ax(A.cowork, 5), y: ay(A.cowork, 3), facing: 'down' as const },
+    { id: 'cowork_c3', x: ax(A.cowork, 8), y: ay(A.cowork, 3), facing: 'down' as const },
+    { id: 'cowork_c4', x: ax(A.cowork, 2), y: ay(A.cowork, 7), facing: 'up'   as const },
+    { id: 'cowork_c5', x: ax(A.cowork, 5), y: ay(A.cowork, 7), facing: 'up'   as const },
+    { id: 'cowork_c6', x: ax(A.cowork, 8), y: ay(A.cowork, 7), facing: 'up'   as const },
+    // Auditorio — 2 filas de 6 asientos
+    ...Array.from({ length: 6 }, (_, i) => ({
+      id: `audio_r1_${i}`, x: ax(A.audio, 4 + i * 2), y: ay(A.audio, 4), facing: 'up' as const,
+    })),
+    ...Array.from({ length: 6 }, (_, i) => ({
+      id: `audio_r2_${i}`, x: ax(A.audio, 4 + i * 2), y: ay(A.audio, 6), facing: 'up' as const,
+    })),
+    // Galería — bancos en el centro (lejos de la puerta superior)
+    { id: 'gal_b1', x: ax(A.gallery, 4),  y: ay(A.gallery, 8),  facing: 'down' as const },
+    { id: 'gal_b2', x: ax(A.gallery, 8),  y: ay(A.gallery, 8),  facing: 'down' as const },
+    { id: 'gal_b3', x: ax(A.gallery, 12), y: ay(A.gallery, 8),  facing: 'down' as const },
+    { id: 'gal_b4', x: ax(A.gallery, 4),  y: ay(A.gallery, 12), facing: 'up' as const },
+    { id: 'gal_b5', x: ax(A.gallery, 8),  y: ay(A.gallery, 12), facing: 'up' as const },
+    { id: 'gal_b6', x: ax(A.gallery, 12), y: ay(A.gallery, 12), facing: 'up' as const },
   ];
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 13; col++) {
-      chairs.push({ id: `aud_r${row}_c${col}`, x: px(9 + col * 4), y: px(27 + row * 3), facing: 'down' as const });
-    }
-  }
 
   return {
     id: 'office',
-    name: 'Oficina Tradicional',
+    name: 'Oficina LimeZu (6 áreas)',
     widthTiles: W, heightTiles: H, tileSize: T,
     bgColor: 0x2a2d3e,
     wallColor: 0x4a5168,
     accentColor: 0x667eea,
+    outdoorColor: 0x1f2937, // “patio/exterior” oscuro entre áreas
     tiles,
-    spawnX: 8, spawnY: 16,
+    spawnX: 7, spawnY: 12, // dentro del Lounge, cerca de la puerta sur
     teleports: [],
     chairs,
-    privateZones: [
-      { id: 'meet_left',  name: 'Sala Reunión A', x: 4,  y: 4,  width: 8,  height: 6, color: '#4ade80' },
-      { id: 'meet_right', name: 'Sala Reunión B', x: 16, y: 4,  width: 12, height: 6, color: '#facc15' },
-      { id: 'office_open', name: 'Open Space', x: 4, y: 14, width: 24, height: 6, color: '#667eea' },
-      { id: 'cw_desks',  name: 'Coworking · Escritorios', x: 33, y: 3,  width: 14, height: 8,  color: '#22d3ee' },
-      { id: 'cw_lounge', name: 'Lounge Café',             x: 50, y: 3,  width: 17, height: 9,  color: '#10b981' },
-      { id: 'cw_pods',   name: 'Coworking · Pods',        x: 33, y: 14, width: 34, height: 6,  color: '#a78bfa' },
-      { id: 'aud_seating', name: 'Auditorio · Butacas', x: 8, y: 26, width: 54, height: 11, color: '#f59e0b' },
-      { id: 'aud_stage',   name: 'Escenario',           x: 8, y: 38, width: 54, height: 4,  color: '#ef4444' },
-    ],
+    backgroundImages: areas.map(a => ({
+      key: a.key,
+      url: a.url,
+      x: a.tx * T,
+      y: a.ty * T,
+      width: a.tw * T,
+      height: a.th * T,
+    })),
+    corridors,
+    extraCollisions: ec,
+    privateZones: areas.map(a => ({
+      id: `zone_${a.id}`,
+      name: a.name,
+      x: a.tx, y: a.ty,
+      width: a.tw, height: a.th,
+      color: a.zoneColor,
+    })),
     whiteboards: [
-      { id: 'office_wb_a', x: px(8),  y: px(4) - 8, width: 96, height: 16 },
-      { id: 'office_wb_b', x: px(22), y: px(4) - 8, width: 96, height: 16 },
-      { id: 'cw_wb',       x: px(40), y: px(13) - 6, width: 96, height: 14 },
+      { id: 'office_wb_a', x: (A.cowork.tx + 5) * T, y: (A.cowork.ty + 1) * T + 8, width: 96, height: 16 },
     ],
     screens: [
-      { id: 'office_tv',  x: px(22), y: px(4) - 8,   width: 96,  height: 16, defaultUrl: '' },
-      { id: 'aud_screen', x: px(35), y: px(38) - 16, width: 256, height: 32, defaultUrl: '' },
+      { id: 'office_tv',  x: (A.audio.tx + 8) * T, y: (A.audio.ty + 1) * T + 8, width: 80, height: 32, defaultUrl: '' },
     ],
-    decorations: [
-      { type: 'desk', x: px(8),  y: px(7) },
-      { type: 'desk', x: px(22), y: px(7) },
-      { type: 'desk', x: px(9),  y: px(16) },
-      { type: 'desk', x: px(22), y: px(16) },
-      { type: 'plant', x: px(2), y: px(2) },
-      { type: 'plant', x: px(2), y: px(21) },
-      { type: 'desk', x: px(39), y: px(7) },
-      { type: 'desk', x: px(38), y: px(17) },
-      { type: 'desk', x: px(58), y: px(17) },
-      { type: 'plant', x: px(32), y: px(2) },
-      { type: 'plant', x: px(68), y: px(2) },
-      { type: 'coffee', x: px(60), y: px(4) },
-      { type: 'plant', x: px(2),  y: px(43) },
-      { type: 'plant', x: px(68), y: px(43) },
-    ],
+    decorations: [],
   };
 }
 

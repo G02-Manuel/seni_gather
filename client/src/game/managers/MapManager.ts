@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { MapDefinition, MapChair, MapTeleport, CONSTANTS, PlacedFurniture } from '../../types';
 import { MAPS } from '../utils/MapDefinitions';
+import { LZ_KEYS, OFFICE_TILES, buildLimezuFurniture } from '../utils/LimezuAssets';
 
 export interface MapRenderResult {
   collisionLayer: Phaser.GameObjects.Group;
@@ -123,8 +124,15 @@ export class MapManager {
   /**
    * Construye un contenedor con la geometría visual del mueble en
    * coordenadas relativas (0,0). Lo reutilizamos para todos los placed.
+   *
+   * Si hay un sprite LimeZu disponible para el tipo, se usa.
+   * Si no, fallback al render anterior con primitivas Phaser.
    */
   private buildFurnitureContainer(type: string): Phaser.GameObjects.Container {
+    // Intentar primero con sprites pixel-art LimeZu
+    const lz = buildLimezuFurniture(this.scene, type);
+    if (lz) return lz;
+
     const c = this.scene.add.container(0, 0);
     if (type === 'desk') {
       c.add(this.scene.add.rectangle(0, 0, 64, 28, 0x6b4423));
@@ -177,27 +185,151 @@ export class MapManager {
     const wpx = def.widthTiles * T;
     const hpx = def.heightTiles * T;
 
-    // Suelo base
+    // ¿Usamos tilesets pixel-art LimeZu para este template?
+    // Por ahora solo office. Si la textura aún no se cargó (preload no
+    // ejecutado), caemos a render con primitivas como antes.
+    const useLimezu = def.id === 'office'
+      && this.scene.textures.exists(LZ_KEYS.ROOM_BUILDER);
+
+    // Si el template trae una imagen de fondo pre-renderizada (ej. casa
+    // LimeZu), la mostramos en lugar de pintar tile-a-tile.
+    const useBgImage = !!def.backgroundImage
+      && this.scene.textures.exists(def.backgroundImage.key);
+    // Mapas compuestos: varias áreas con imagen propia.
+    const useBgImages = !!def.backgroundImages && def.backgroundImages.length > 0;
+    // En cualquiera de los dos casos saltamos el render por tile y solo
+    // registramos colisiones para tile=1.
+    const skipTileSprites = useBgImage || useBgImages;
+
+    // Suelo base (color sólido — queda como fondo si los sprites no cubren).
+    // Si el mapa define `outdoorColor` (mapas compuestos con varias áreas
+    // separadas por “patio/pasillo”), se usa ese color para el suelo
+    // exterior; las imágenes de áreas se dibujan encima.
+    const baseColor = (def.outdoorColor !== undefined) ? def.outdoorColor : def.bgColor;
     this.themed.push(
-      this.scene.add.rectangle(wpx / 2, hpx / 2, wpx, hpx, def.bgColor).setDepth(-100)
+      this.scene.add.rectangle(wpx / 2, hpx / 2, wpx, hpx, baseColor).setDepth(-100)
     );
 
-    // Grid sutil
-    const grid = this.scene.add.graphics();
-    grid.lineStyle(1, 0xffffff, 0.04);
-    for (let x = 0; x <= wpx; x += T) grid.lineBetween(x, 0, x, hpx);
-    for (let y = 0; y <= hpx; y += T) grid.lineBetween(0, y, wpx, y);
-    grid.setDepth(-99);
-    this.themed.push(grid);
+    // Fondo pre-renderizado único (imagen LimeZu cubre todo el mundo)
+    if (useBgImage) {
+      const bg = this.scene.add.image(wpx / 2, hpx / 2, def.backgroundImage!.key)
+        .setDisplaySize(wpx, hpx)
+        .setDepth(-95);
+      // Pixel-art crisp
+      bg.setOrigin(0.5);
+      const tex = this.scene.textures.get(def.backgroundImage!.key);
+      tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+      this.themed.push(bg);
+    }
+
+    // Imágenes posicionadas (mapa compuesto: varias áreas LimeZu)
+    if (def.backgroundImages) {
+      for (const bgi of def.backgroundImages) {
+        if (!this.scene.textures.exists(bgi.key)) continue;
+        const img = this.scene.add.image(bgi.x + bgi.width / 2, bgi.y + bgi.height / 2, bgi.key)
+          .setDisplaySize(bgi.width, bgi.height)
+          .setOrigin(0.5)
+          .setDepth(-95);
+        const tex = this.scene.textures.get(bgi.key);
+        tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+        this.themed.push(img);
+      }
+    }
+
+    // Corredores: piso de madera LimeZu en cada rectángulo en tiles.
+    // Se dibujan ENCIMA de las áreas (depth -94) para "perforar"
+    // visualmente las paredes pintadas en los PNG cuando el corredor
+    // entra 1 tile dentro del área (puerta).
+    if (def.corridors && this.scene.textures.exists(LZ_KEYS.ROOM_BUILDER)) {
+      for (const c of def.corridors) {
+        for (let yy = 0; yy < c.height; yy++) {
+          for (let xx = 0; xx < c.width; xx++) {
+            const cx = (c.x + xx) * T + T / 2;
+            const cy = (c.y + yy) * T + T / 2;
+            this.themed.push(
+              this.scene.add.image(cx, cy, LZ_KEYS.ROOM_BUILDER, OFFICE_TILES.floorWood)
+                .setDisplaySize(T, T)
+                .setDepth(-94)
+            );
+          }
+        }
+      }
+    } else if (def.corridors) {
+      // Fallback sin textura: rectángulo de color madera
+      for (const c of def.corridors) {
+        this.themed.push(
+          this.scene.add.rectangle(
+            c.x * T + (c.width * T) / 2,
+            c.y * T + (c.height * T) / 2,
+            c.width * T,
+            c.height * T,
+            0x8B5A2B,
+          ).setDepth(-94)
+        );
+      }
+    }
+
+    // Grid sutil (solo si NO usamos pixel-art)
+    if (!useLimezu && !skipTileSprites) {
+      const grid = this.scene.add.graphics();
+      grid.lineStyle(1, 0xffffff, 0.04);
+      for (let x = 0; x <= wpx; x += T) grid.lineBetween(x, 0, x, hpx);
+      for (let y = 0; y <= hpx; y += T) grid.lineBetween(0, y, wpx, y);
+      grid.setDepth(-99);
+      this.themed.push(grid);
+    }
 
     // Capa de tiles
     this.walls = this.scene.physics.add.staticGroup();
     for (let y = 0; y < def.heightTiles; y++) {
       for (let x = 0; x < def.widthTiles; x++) {
         const t = def.tiles[y][x];
+        const cx = x * T + T / 2;
+        const cy = y * T + T / 2;
+
+        // Si tenemos imagen(es) de fondo, NO pintamos tiles individuales,
+        // pero seguimos registrando colisiones para tiles=1.
+        if (skipTileSprites) {
+          if (t === 1) {
+            this.collisionRects.push(new Phaser.Geom.Rectangle(x * T, y * T, T, T));
+          }
+          continue;
+        }
+
+        if (useLimezu) {
+          // ---- OFFICE con sprites LimeZu ----
+          // Suelo de madera por defecto en TODA la sala (incluyendo bajo paredes)
+          this.themed.push(
+            this.scene.add.image(cx, cy, LZ_KEYS.ROOM_BUILDER, OFFICE_TILES.floorWood)
+              .setDisplaySize(T, T)
+              .setDepth(-95)
+          );
+
+          if (t === 1) {
+            // Pared (sprite + colisión real)
+            const w = this.scene.add.image(cx, cy, LZ_KEYS.ROOM_BUILDER, OFFICE_TILES.wall)
+              .setDisplaySize(T, T)
+              .setDepth(0);
+            this.scene.physics.add.existing(w, true);
+            this.walls.add(w as any);
+            const body = (w.body as Phaser.Physics.Arcade.StaticBody);
+            if (body) body.updateFromGameObject();
+            this.collisionRects.push(new Phaser.Geom.Rectangle(x * T, y * T, T, T));
+          } else if (t === 2 || t === 3) {
+            // Alfombra de acento sobre madera
+            this.themed.push(
+              this.scene.add.image(cx, cy, LZ_KEYS.ROOM_BUILDER, OFFICE_TILES.floorCarpet)
+                .setDisplaySize(T, T)
+                .setDepth(-90)
+            );
+          }
+          continue;
+        }
+
+        // ---- Render legacy con primitivas (otros templates) ----
         if (t === 1) {
           // pared
-          const w = this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, def.wallColor);
+          const w = this.scene.add.rectangle(cx, cy, T, T, def.wallColor);
           w.setStrokeStyle(1, 0x000000, 0.3);
           this.walls.add(w as any);
           const body = (w.body as Phaser.Physics.Arcade.StaticBody);
@@ -206,36 +338,47 @@ export class MapManager {
         } else if (t === 2) {
           // alfombra (color de acento)
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, def.accentColor, 0.22).setDepth(-90)
+            this.scene.add.rectangle(cx, cy, T, T, def.accentColor, 0.22).setDepth(-90)
           );
         } else if (t === 3) {
           // suelo madera/especial
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, 0x8B5A2B, 0.4).setDepth(-90)
+            this.scene.add.rectangle(cx, cy, T, T, 0x8B5A2B, 0.4).setDepth(-90)
           );
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2 - T / 3, T, 1, 0x000000, 0.18).setDepth(-89)
+            this.scene.add.rectangle(cx, cy - T / 3, T, 1, 0x000000, 0.18).setDepth(-89)
           );
         } else if (t === 4) {
           // tierra (sendero del parque)
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, 0x8b6a3f, 0.85).setDepth(-90)
+            this.scene.add.rectangle(cx, cy, T, T, 0x8b6a3f, 0.85).setDepth(-90)
           );
         } else if (t === 5) {
           // césped (variación verde sutil sobre bg)
           const v = ((x * 7 + y * 11) % 5) / 60;
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, 0x4d7c0f, 0.55 + v).setDepth(-95)
+            this.scene.add.rectangle(cx, cy, T, T, 0x4d7c0f, 0.55 + v).setDepth(-95)
           );
         } else if (t === 6) {
           // agua / cristal
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2, T, T, 0x38bdf8, 0.65).setDepth(-90)
+            this.scene.add.rectangle(cx, cy, T, T, 0x38bdf8, 0.65).setDepth(-90)
           );
           this.themed.push(
-            this.scene.add.rectangle(x * T + T / 2, y * T + T / 2 - T / 4, T - 4, 1, 0xffffff, 0.4).setDepth(-89)
+            this.scene.add.rectangle(cx, cy - T / 4, T - 4, 1, 0xffffff, 0.4).setDepth(-89)
           );
         }
+      }
+    }
+
+    // Colisiones extra (rectángulos arbitrarios en píxeles, p.ej. para
+    // muebles del fondo pre-renderizado por los que no se debe pasar).
+    if (def.extraCollisions) {
+      for (const r of def.extraCollisions) {
+        this.collisionRects.push(new Phaser.Geom.Rectangle(r.x, r.y, r.width, r.height));
+        // Cuerpo invisible para que choque con sprites con física (jugadores
+        // no usan física estricta porque la colisión se hace por collidesAt,
+        // pero registrar el cuerpo no hace daño).
       }
     }
 
@@ -312,6 +455,18 @@ export class MapManager {
   /** Dibuja iconos decorativos sin assets */
   private drawDecoration(type: string, x: number, y: number) {
     const def = this.current;
+
+    // Si hay sprite LimeZu para este tipo y estamos en office, úsalo.
+    if (def?.id === 'office') {
+      const lz = buildLimezuFurniture(this.scene, type);
+      if (lz) {
+        lz.setPosition(x, y);
+        lz.setDepth(y / 100);
+        this.themed.push(lz);
+        return;
+      }
+    }
+
     const g = this.scene.add.container(x, y);
     let icon = '';
 
@@ -393,13 +548,52 @@ export class MapManager {
     this.themed.push(g);
   }
 
-  /** Genera un minimapa (PNG dataURL) bajado de resolución */
+  /** Genera un minimapa (PNG dataURL) bajado de resolución.
+   *  Si el mapa trae backgroundImage, devolvemos directamente esa URL
+   *  para que el minimapa se vea como el mapa real. */
   private renderMinimap(def: MapDefinition): string {
+    if (def.backgroundImage) return def.backgroundImage.url;
+
     const cell = 4;
     const c = document.createElement('canvas');
     c.width = def.widthTiles * cell;
     c.height = def.heightTiles * cell;
     const ctx = c.getContext('2d')!;
+
+    // Mapas compuestos: pintamos suelo exterior + cada imagen de área en
+    // su posición real, escalada al cell del minimapa.
+    if (def.backgroundImages && def.backgroundImages.length) {
+      const out = (def.outdoorColor !== undefined) ? def.outdoorColor : def.bgColor;
+      ctx.fillStyle = '#' + out.toString(16).padStart(6, '0');
+      ctx.fillRect(0, 0, c.width, c.height);
+      // Pintamos cada área asíncronamente (cargamos cada imagen y dibujamos).
+      // Como renderMinimap es síncrono (devuelve dataURL al instante), lo
+      // que hacemos aquí es: marcamos cada área con un rectángulo de su
+      // color de zona privada como placeholder, y devolvemos el canvas.
+      // Las imágenes reales se ven en el mapa, no en el minimapa.
+      for (const bgi of def.backgroundImages) {
+        const px = (bgi.x / def.tileSize) * cell;
+        const py = (bgi.y / def.tileSize) * cell;
+        const pw = (bgi.width / def.tileSize) * cell;
+        const ph = (bgi.height / def.tileSize) * cell;
+        ctx.fillStyle = '#' + def.wallColor.toString(16).padStart(6, '0');
+        ctx.fillRect(px, py, pw, ph);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+      }
+      // Zonas privadas marcadas con su color encima
+      for (const z of def.privateZones) {
+        ctx.fillStyle = z.color + 'aa';
+        ctx.fillRect(z.x * cell, z.y * cell, z.width * cell, z.height * cell);
+      }
+      for (const tp of def.teleports) {
+        ctx.fillStyle = '#9333ea';
+        ctx.fillRect(tp.x * cell, tp.y * cell, tp.width * cell, tp.height * cell);
+      }
+      return c.toDataURL();
+    }
+
     ctx.fillStyle = '#' + def.bgColor.toString(16).padStart(6, '0');
     ctx.fillRect(0, 0, c.width, c.height);
 
@@ -445,6 +639,13 @@ export class MapManager {
       for (let x = minX; x <= maxX; x++) {
         if (y < 0 || x < 0 || y >= this.current.heightTiles || x >= this.current.widthTiles) return true;
         if (this.current.tiles[y][x] === 1) return true;
+      }
+    }
+    // Colisiones extra (no provienen del grid)
+    if (this.current.extraCollisions) {
+      for (const r of this.current.extraCollisions) {
+        if (px + radius > r.x && px - radius < r.x + r.width &&
+            py + radius > r.y && py - radius < r.y + r.height) return true;
       }
     }
     return false;

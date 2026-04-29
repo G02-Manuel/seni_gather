@@ -164,6 +164,16 @@ export interface MapDefinition {
   whiteboards: MapWhiteboard[];
   screens: MapScreen[];
   decorations: { type: string; x: number; y: number }[];
+  /** Si está, se renderiza esta imagen como fondo del mapa (cubre todo el rectángulo del mundo). */
+  backgroundImage?: { url: string; key: string };
+  /** Imágenes posicionadas (varias áreas en un mapa compuesto). En píxeles. */
+  backgroundImages?: { url: string; key: string; x: number; y: number; width: number; height: number }[];
+  /** Pasillos / corredores entre áreas (rectángulos en tiles). Se les pinta piso. */
+  corridors?: { x: number; y: number; width: number; height: number }[];
+  /** Rectángulos de colisión adicionales (no cubiertos por tiles=1). En píxeles. */
+  extraCollisions?: { x: number; y: number; width: number; height: number }[];
+  /** Color de “suelo exterior” (pasillos / patio entre áreas). Si está, se pinta antes de las imágenes. */
+  outdoorColor?: number;
 }
 
 // ----- Eventos Socket.io ---------------------------------------------

@@ -119,3 +119,9 @@ Ver [SEGURIDAD.md](SEGURIDAD.md) para análisis completo y recomendaciones.
 ## �📝 Licencia
 
 MIT
+
+## 🎨 Créditos de assets
+
+- Tileset pixel-art **Modern Interiors RPG Tileset** por **LimeZu** —
+  [limezu.itch.io](https://limezu.itch.io/moderninteriors). Usado bajo licencia
+  comercial completa (versión paga).

@@ -24,12 +24,15 @@ interface TemplateMeta {
 const TEMPLATES: Record<TemplateId, TemplateMeta> = {
   office: {
     id: 'office',
-    name: 'Oficina Tradicional',
-    spawn: { x: 8, y: 16 },
+    name: 'Oficina LimeZu (6 áreas)',
+    spawn: { x: 7, y: 12 },
     fastTravel: {
-      office:     { id: 'office',     x: 8,  y: 16 },
-      coworking:  { id: 'coworking',  x: 50, y: 8  },
-      auditorium: { id: 'auditorium', x: 35, y: 30 },
+      lounge:  { id: 'lounge',  x: 7,  y: 7  },
+      cafe:    { id: 'cafe',    x: 22, y: 7  },
+      cowork:  { id: 'cowork',  x: 35, y: 7  },
+      gym:     { id: 'gym',     x: 9,  y: 25 },
+      audio:   { id: 'audio',   x: 31, y: 23 },
+      gallery: { id: 'gallery', x: 18, y: 42 },
     },
   },
   nature: {

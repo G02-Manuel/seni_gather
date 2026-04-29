@@ -9,6 +9,7 @@ import { MapManager } from './managers/MapManager';
 import { PlayerEntity } from './entities/PlayerEntity';
 import { SpriteFactory } from './utils/SpriteFactory';
 import { TemplateId } from './utils/MapDefinitions';
+import { preloadLimezuTilesets } from './utils/LimezuAssets';
 
 export interface GameSceneCallbacks {
   onLocalPlayerReady?: (id: string) => void;
@@ -79,6 +80,29 @@ export class GameScene extends Phaser.Scene {
     this.avatarConfig = data.avatar;
     if (data.templateId) this.templateId = data.templateId;
     this.callbacks = data.callbacks || {};
+  }
+
+  // -----------------------------------------------------------------
+  // PRELOAD (assets externos: tilesets LimeZu)
+  // -----------------------------------------------------------------
+  preload() {
+    preloadLimezuTilesets(this);
+    // Imagen pre-renderizada del mapa de oficina (LimeZu Generic_Home_1)
+    if (!this.textures.exists('map_office_home')) {
+      this.load.image('map_office_home', '/maps/office_home.png');
+    }
+    // Imágenes de áreas del mapa compuesto (oficina extendida)
+    const areas: Array<[string, string]> = [
+      ['map_area_lounge',  '/maps/area_lounge.png'],
+      ['map_area_cafe',    '/maps/area_cafe.png'],
+      ['map_area_cowork',  '/maps/area_cowork.png'],
+      ['map_area_audio',   '/maps/area_audio.png'],
+      ['map_area_gym',     '/maps/area_gym.png'],
+      ['map_area_gallery', '/maps/area_gallery.png'],
+    ];
+    for (const [k, u] of areas) {
+      if (!this.textures.exists(k)) this.load.image(k, u);
+    }
   }
 
   // -----------------------------------------------------------------
@@ -385,14 +409,31 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const wpx = def.widthTiles * def.tileSize;
     const hpx = def.heightTiles * def.tileSize;
-    cam.setZoom(1);
-    cam.setBounds(0, 0, wpx, hpx);
-    if (this.localPlayer) {
-      cam.startFollow(this.localPlayer.sprite, true, 0.18, 0.18);
-    } else {
+    // Zoom adaptativo: en mapas pequeños subimos un poco para que el
+    // pixel-art se aprecie; en mapas grandes mantenemos 1.
+    const isSmall = def.widthTiles <= 20 && def.heightTiles <= 20;
+    const zoom = isSmall ? 1.5 : 1;
+    cam.setZoom(zoom);
+
+    // Tamaño del viewport en coordenadas del mundo (después del zoom).
+    const viewW = cam.width / zoom;
+    const viewH = cam.height / zoom;
+
+    if (wpx <= viewW && hpx <= viewH) {
+      // El mundo cabe entero en pantalla → centrarlo (sin follow ni bounds).
+      cam.removeBounds();
       cam.stopFollow();
+      cam.centerOn(wpx / 2, hpx / 2);
+    } else {
+      // Mundo más grande que la pantalla → seguimiento normal con bounds.
+      cam.setBounds(0, 0, wpx, hpx);
+      if (this.localPlayer) {
+        cam.startFollow(this.localPlayer.sprite, true, 0.18, 0.18);
+      } else {
+        cam.stopFollow();
+      }
+      cam.centerOn(focusX, focusY);
     }
-    cam.centerOn(focusX, focusY);
   }
 
   // -----------------------------------------------------------------
