@@ -16,15 +16,21 @@ interface Props {
 const VideoTile: React.FC<Props> = ({ stream, name, isLocal, speaking, volume }) => {
   const ref = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.srcObject = stream;
-      // Local debe ir muteado para evitar feedback
-      ref.current.muted = !!isLocal;
-    }
-  }, [stream, isLocal]);
-
   const hasVideo = !!stream && stream.getVideoTracks().some(t => t.enabled && t.readyState === 'live');
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    // Si el stream cambió, re-asignar y reintentar play (algunos navegadores
+    // se quedan en pausa al sustituir tracks)
+    if (v.srcObject !== stream) {
+      v.srcObject = stream;
+    }
+    v.muted = !!isLocal;
+    if (stream && hasVideo) {
+      v.play().catch(() => {});
+    }
+  }, [stream, isLocal, hasVideo]);
 
   return (
     <div className={`video-tile ${speaking ? 'speaking' : ''} ${isLocal ? 'local' : ''}`}>

@@ -220,14 +220,17 @@ export class WebRTCManager {
       try { t.stop(); } catch {}
     }
     stream.addTrack(track);
-    this.events.onLocalStream?.(stream);
+    // Emitir una NUEVA referencia de MediaStream para que React detecte el cambio
+    const fresh = new MediaStream(stream.getTracks());
+    this.localStream = fresh;
+    this.events.onLocalStream?.(fresh);
 
     for (const info of this.peers.values()) {
       const sender = info.pc.getSenders().find(s => s.track && s.track.kind === track.kind);
       if (sender) {
         try { await sender.replaceTrack(track); } catch (e) { this.events.onError?.(e as Error); }
       } else {
-        try { info.pc.addTrack(track, stream); } catch (e) { this.events.onError?.(e as Error); }
+        try { info.pc.addTrack(track, fresh); } catch (e) { this.events.onError?.(e as Error); }
       }
     }
   }
@@ -245,7 +248,10 @@ export class WebRTCManager {
         try { info.pc.removeTrack(sender); } catch {}
       }
     }
-    this.events.onLocalStream?.(this.localStream);
+    // Emitir nueva referencia para forzar re-render
+    const fresh = new MediaStream(this.localStream.getTracks());
+    this.localStream = fresh;
+    this.events.onLocalStream?.(fresh);
   }
 
   toggleMicTrackLegacy(on: boolean) {
